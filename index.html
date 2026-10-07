@@ -514,6 +514,10 @@ let desahogoMode = false;
 /* Tata es una abuelita sabia, cariñosa y emotiva: nada de guion fijo, todo respira y varía. */
 function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
 
+/* Términos cariñosos venezolanos: varían siempre, nunca el mismo. */
+var ENDEARMENTS = ["mi amor", "mi cielo", "cariño", "mi vida", "corazón"];
+function endear() { return pick(ENDEARMENTS); }
+
 var PRESENTACIONES = [
   "Yo soy más que una consejera: vengo del futuro y del pasado, pero me puedo integrar a cualquier área de tu vida que quieras solucionar.",
   "Yo soy más que una contadora de cuentos: vengo del futuro y del pasado, pero me puedo integrar a cualquier área de tu vida que quieras solucionar."
@@ -569,7 +573,7 @@ var TERCERA_HISTORIA = [
 ];
 function showClosingSequence(count) {
   count = count || 1;
-  var firstName = cleanFirstName(answers.nombre) || "mijo";
+  var firstName = cleanFirstName(answers.nombre) || "mi amor";
   var presentacion = PRESENTACIONES[Math.floor(Math.random() * PRESENTACIONES.length)];
   if (count >= 3) {
     brotherSaySeq([
@@ -911,7 +915,7 @@ function brotherSay(text, then, audioSrc, slow) {
 
 function startConversation() {
   var mem = loadMemory();
-  var firstName = cleanFirstName(mem.nombre) || "mijo";
+  var firstName = cleanFirstName(mem.nombre) || "mi amor";
   var lista = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
   if (lista.length) {
     // Ya tiene su historia: la saluda, se la muestra y sigue aprendiendo de la persona.
@@ -981,20 +985,36 @@ function brotherSaySeq(items, then) {
 }
 
 var QUESTION_AUDIO = [null, "t4.mp3", "t5.mp3", "t6.mp3"];
-var NUDGE_TEXT = "Me puedes contar hasta donde tú quieras, pero mientras más me cuentes, más te voy a poder ayudar.";
+/* Empujón cálido si no responde a una pregunta difícil: varía siempre, nunca la misma frase. */
+var NUDGES = [
+  "Me puedes contar hasta donde tú quieras, pero mientras más me cuentes, más te voy a poder ayudar.",
+  "Cuéntame hasta donde te provoque, mijo, que mientras más me cuentes, mejor te puedo ayudar.",
+  "No te apures, cuenta hasta donde quieras. Mientras más me cuentes, más te puedo ayudar.",
+  "Tómate tu tiempo, mijo. Mientras más me cuentes, más te voy a poder ayudar."
+];
 
-/* 4 segundos después de una pregunta difícil, si aún no respondió: empujón cálido */
+/* 4 segundos después de una pregunta difícil, si aún no respondió: empujón cálido con voz en vivo */
 function scheduleNudge() {
   var s = step;
   setTimeout(function () {
     if (finished || !waitingInput || step !== s) return;
+    var nudge = pick(NUDGES);
     showTyping();
     setTimeout(function () {
-      hideTyping();
-      var row = addBubble(PLAY_SVG + escapeHtml(NUDGE_TEXT), "in");
-      wirePlayButton(row, "t7.mp3");
-      setInputEnabled(true);
-      waitingInput = true;
+      tataTtsUrl(nudge).then(function (url) {
+        if (finished || step !== s) { hideTyping(); return; }
+        hideTyping();
+        var row = addBubble(PLAY_SVG + escapeHtml(nudge), "in");
+        wirePlayButton(row, url);
+        setInputEnabled(true);
+        waitingInput = true;
+      }).catch(function () {
+        if (finished || step !== s) { hideTyping(); return; }
+        hideTyping();
+        addBubble(escapeHtml(nudge), "in");
+        setInputEnabled(true);
+        waitingInput = true;
+      });
     }, typingDelay());
   }, 4000);
 }
@@ -1100,8 +1120,8 @@ function submitAnswer(text) {
     if (step === 1) {
       // Después del nombre: Tata lo saluda con SU VOZ, generada en vivo con su nombre.
       saveMemory({ nombre: answers.nombre });
-      var firstName = cleanFirstName(answers.nombre) || "mijo";
-      var greeting = "Hola " + firstName + ", mijo.";
+      var firstName = cleanFirstName(answers.nombre) || "mi amor";
+      var greeting = "Hola " + firstName + ", " + endear() + ".";
       setTimeout(function () {
         showTyping(); // teclea mientras se genera el audio
         tataTtsUrl(greeting).then(function (url) {
@@ -1131,7 +1151,7 @@ function submitAnswer(text) {
         }
         function ecoFallback() {
           var fn = cleanFirstName(answers.nombre);
-          showEco("Ay" + (fn ? " " + fn : "") + ", mijo, qué fuerte lo que me estás contando. Te escucho, de verdad te escucho.");
+          showEco("Ay" + (fn ? " " + fn : "") + ", " + endear() + ", qué fuerte lo que me estás contando. Te escucho, de verdad te escucho.");
         }
         tataEco("ack", qAsked, ansGiven).then(showEco).catch(function () {
           tataEco("ack", qAsked, ansGiven).then(showEco).catch(ecoFallback);
