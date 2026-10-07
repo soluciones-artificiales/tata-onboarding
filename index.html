@@ -592,7 +592,12 @@ function handleDesahogo(text) {
   waitingInput = false;
   setInputEnabled(false);
   showTyping();
-  tataEco("ack", "", text).then(function (eco) {
+  // En el desahogo responde a lo NUEVO: contexto = conversación reciente, no todo de nuevo.
+  var mem = loadMemory();
+  var conv = (mem.conversacion || []).slice(-6).map(function (m) { return "Persona: " + m.u + "\nTata: " + m.t; }).join("\n");
+  var ctx = "Siguen conversando después de su historia. NO resumas todo lo que te contó antes; responde SOLO a su último mensaje, con calidez, en 1-2 líneas específicas. Usa su nombre si suena natural." +
+    (conv ? "\nLo último que hablaron:\n" + conv : "");
+  tataEco("ack", "", text, ctx).then(function (eco) {
     hideTyping();
     logConversacion(text, eco);
     var row = addBubble(
@@ -683,10 +688,10 @@ function generateParabolaFlow(isExtra) {
 }
 
 /* ---------- Eco de Tata: acknowledgment empático tras cada respuesta ---------- */
-async function tataEco(modo, pregunta, ultima) {
-  var ctx = "Qué le pesa: " + (answers.que_pesa || "(no dijo)") +
+async function tataEco(modo, pregunta, ultima, ctxOverride) {
+  var ctx = ctxOverride || ("Qué le pesa: " + (answers.que_pesa || "(no dijo)") +
     "\nQué quiere: " + (answers.que_quiere || "(no dijo)") +
-    "\nQué voz le dice que no puede: " + (answers.que_voz || "(no dijo)");
+    "\nQué voz le dice que no puede: " + (answers.que_voz || "(no dijo)"));
   const res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-eco", {
     method: "POST",
     headers: {
@@ -783,12 +788,8 @@ function startConversation() {
       var last = lista[lista.length - 1];
       deliverParabola(last, function () {
         showParabolaBubble(last);
-        setTimeout(function () {
-          addBubble(escapeHtml(lista.length >= 3
-            ? "Seguimos aquí. Ya te conté tus tres historias, pero te sigo escuchando."
-            : "Seguimos aquí. Si quieres otra historia, pídemela, o cuéntame lo que quieras."), "in");
-          enableDesahogo();
-        }, 1200);
+        // El follow-up completo también al volver: las 4 burbujas (incluye lo del beta).
+        setTimeout(function () { showClosingSequence(lista.length); }, 1200);
       });
     }, null);
   } else if (mem.nombre && mem.finishedAt) {
