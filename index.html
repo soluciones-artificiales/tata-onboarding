@@ -256,18 +256,25 @@ var MEM_KEY = "tata-memory-v1";
 function loadMemory() {
   try {
     var m = JSON.parse(localStorage.getItem(MEM_KEY) || "null");
-    return (m && typeof m === "object") ? m : {};
+    if (m && typeof m === "object") return m;
+  } catch (e) {}
+  try {
+    var s = JSON.parse(sessionStorage.getItem(MEM_KEY) || "null");
+    return (s && typeof s === "object") ? s : {};
   } catch (e) { return {}; }
 }
 function saveMemory(patch) {
   try {
     var m = loadMemory();
     for (var k in patch) m[k] = patch[k];
-    localStorage.setItem(MEM_KEY, JSON.stringify(m));
+    var json = JSON.stringify(m);
+    try { localStorage.setItem(MEM_KEY, json); } catch (e) {}
+    try { sessionStorage.setItem(MEM_KEY, json); } catch (e) {}
   } catch (e) { /* almacenamiento no disponible */ }
 }
 function clearMemory() {
   try { localStorage.removeItem(MEM_KEY); } catch (e) {}
+  try { sessionStorage.removeItem(MEM_KEY); } catch (e) {}
 }
 
 let step = 0;            // índice de la próxima pregunta por hacer
@@ -369,7 +376,7 @@ async function tataTtsUrl(text) {
   return URL.createObjectURL(blob);
 }
 function cleanFirstName(n) {
-  var skip = /^(hola|buenas|buenos|buenosdias|ey|oye|saludos|me|llamo|soy|mi|es|yo)$/i;
+  var skip = /^(hola|buenas|buenos|buenosdias|ey|oye|saludos|me|llamo|soy|mi|es|yo|tata|abuela)$/i;
   var words = String(n || "").trim().split(/\s+/);
   for (var i = 0; i < words.length; i++) {
     var w = words[i].replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/g, "");
@@ -377,6 +384,109 @@ function cleanFirstName(n) {
   }
   return "";
 }
+/* ---------- Parábola personalizada: tata-parabola + voz de Tata por fragmentos ---------- */
+async function tataParabola(a) {
+  const res = await fetch(SUPABASE_URL + "/functions/v1/tata-parabola", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz })
+  });
+  if (!res.ok) throw new Error("parabola " + res.status);
+  var data = await res.json();
+  var p = data && data.parabola ? String(data.parabola).trim() : "";
+  if (!p) throw new Error("parabola vacía");
+  return p;
+}
+
+/* Fragmentos cortos para que la voz no se degrade (anti-drift): párrafos o bloques de ~2 oraciones */
+function splitParabola(text) {
+  var parts = String(text).split(/\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
+  var out = [];
+  parts.forEach(function (p) {
+    var sentences = p.match(/[^.!?…]+[.!?…]+["”']?\s*/g) || [p];
+    var buf = "";
+    sentences.forEach(function (s) {
+      if (buf && (buf + " " + s).trim().split(/\s+/).length > 45) { out.push(buf); buf = s.trim(); }
+      else buf = (buf + " " + s).trim();
+    });
+    if (buf) out.push(buf);
+  });
+  return out.length ? out : [String(text)];
+}
+
+let parabolaUrls = null, parabolaAudio = null;
+async function playParabola(btn) {
+  var text = (loadMemory() || {}).parabola;
+  if (!text) return;
+  btn.disabled = true;
+  var label = btn.querySelector("span") || btn;
+  var orig = label.textContent;
+  try {
+    if (!parabolaUrls) {
+      label.textContent = "Preparando mi voz…";
+      var parts = splitParabola(text);
+      parabolaUrls = [];
+      for (var i = 0; i < parts.length; i++) {
+        parabolaUrls.push(await tataTtsUrl(parts[i]));
+      }
+    }
+    label.textContent = "Reproduciendo…";
+    if (parabolaAudio) { try { parabolaAudio.pause(); } catch (e) {} parabolaAudio = null; }
+    var urls = parabolaUrls, idx = 0;
+    parabolaAudio = new Audio(urls[0]);
+    parabolaAudio.onended = function () {
+      idx++;
+      if (idx < urls.length) {
+        parabolaAudio.src = urls[idx];
+        parabolaAudio.play().catch(function () {});
+      } else {
+        label.textContent = orig; btn.disabled = false; parabolaAudio = null;
+      }
+    };
+    parabolaAudio.play().catch(function () { label.textContent = orig; btn.disabled = false; });
+  } catch (e) {
+    label.textContent = orig;
+    btn.disabled = false;
+  }
+}
+
+function showParabolaBubble(parabola) {
+  var row = addBubble(
+    escapeHtml("Esta historia es para ti.") + "<br><br>" + escapeHtml(parabola),
+    "in",
+    '<br><button class="retry-btn" id="play-parabola"><span>Escuchar mi historia</span></button>'
+  );
+  document.getElementById("play-parabola").addEventListener("click", function () { playParabola(this); });
+  return row;
+}
+
+/* Un solo disparo por onboarding: genera, guarda en memoria y la muestra */
+function generateParabolaFlow() {
+  showTyping();
+  setInputEnabled(false);
+  waitingInput = false;
+  tataParabola(answers).then(function (p) {
+    hideTyping();
+    saveMemory({ parabola: p, parabolaAt: Date.now() });
+    showParabolaBubble(p);
+  }).catch(function () {
+    hideTyping();
+    var row = addBubble(
+      "Tuve un problema escribiendo tu historia. ¿Lo intentamos de nuevo?",
+      "in",
+      '<br><button class="retry-btn" id="retry-parabola">Reintentar</button>'
+    );
+    document.getElementById("retry-parabola").addEventListener("click", function () {
+      this.disabled = true;
+      generateParabolaFlow();
+    });
+  });
+}
+
 function sayGreetingSeq(greeting, greetingAudioUrl) {
   brotherSaySeq([
     { text: greeting, audio: greetingAudioUrl },
@@ -406,11 +516,34 @@ function brotherSay(text, then, audioSrc, slow) {
 
 function startConversation() {
   var mem = loadMemory();
-  if (mem.nombre) {
+  var firstName = cleanFirstName(mem.nombre) || "mi amor";
+  if (mem.parabola) {
+    // Ya tiene su historia guardada: la saluda y se la muestra de nuevo.
+    answers.nombre = mem.nombre || "";
+    finished = true;
+    setInputEnabled(false);
+    inputEl.placeholder = "Conversación terminada";
+    brotherSay("Hola " + firstName + ", qué bueno verte de nuevo. Aquí está tu historia.", function () {
+      showParabolaBubble(mem.parabola);
+      setInputEnabled(false);
+      waitingInput = false;
+    }, null);
+  } else if (mem.nombre && mem.finishedAt) {
+    // Terminó el onboarding pero la historia no se generó: la generamos ahora.
+    var a = mem.answers || {};
+    answers.nombre = mem.nombre;
+    answers.que_pesa = a.que_pesa || "";
+    answers.que_quiere = a.que_quiere || "";
+    answers.que_voz = a.que_voz || "";
+    finished = true;
+    setInputEnabled(false);
+    inputEl.placeholder = "Conversación terminada";
+    addBubble(escapeHtml("Hola " + firstName + ". Vamos a terminar tu historia."), "in");
+    generateParabolaFlow();
+  } else if (mem.nombre) {
     // La persona ya estuvo aquí: la saluda por su nombre y sigue con las preguntas.
     answers.nombre = mem.nombre;
     step = 1;
-    var firstName = cleanFirstName(mem.nombre) || "mi amor";
     setInputEnabled(false);
     brotherSay("Hola " + firstName + ", qué bueno verte de nuevo.", function () {
       askQuestion(1);
@@ -506,10 +639,10 @@ function finishConversation() {
   showTyping();
   saveAnswers().then(function () {
     hideTyping();
-    const firstName = answers.nombre.split(" ")[0];
+    const firstName = cleanFirstName(answers.nombre) || "mi amor";
     saveMemory({ answers: { nombre: answers.nombre, que_pesa: answers.que_pesa, que_quiere: answers.que_quiere, que_voz: answers.que_voz }, finishedAt: Date.now() });
     const row = addBubble(
-      escapeHtml("Gracias, " + firstName + ". Ya guardé tus respuestas. Tu historia viene en camino."),
+      escapeHtml("Gracias, " + firstName + ". Ya guardé tus respuestas. Ahora te escribo tu historia."),
       "in",
       '<br><button class="retry-btn" id="reset-memory">Empezar de nuevo</button>'
     );
@@ -520,6 +653,7 @@ function finishConversation() {
     finished = true;
     setInputEnabled(false);
     inputEl.placeholder = "Conversación terminada";
+    generateParabolaFlow();
   }).catch(function () {
     hideTyping();
     const row = addBubble(
