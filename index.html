@@ -178,6 +178,7 @@
   #mic-btn:disabled { background: #3a4a52; cursor: default; }
   #mic-btn.recording { background: #c0392b; animation: recpulse 1.2s ease-in-out infinite; }
   @keyframes recpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+  #mic-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   #mic-btn svg { width: 22px; height: 22px; fill: #fff; }
   /* UI de grabación */
   #rec-ui { flex: 1; display: none; align-items: center; gap: 10px; color: #e9edef; font-size: 15px; }
@@ -214,7 +215,7 @@
   <div id="messages"></div>
   <div id="input-bar">
     <input id="text-input" type="text" placeholder="Escribe un mensaje" autocomplete="off" enterkeyhint="send">
-    <div id="rec-ui"><span id="rec-dot"></span><span id="rec-time">0:00</span><span style="color:#8696a0;font-size:13px">Grabando, toca el micrófono para enviar</span></div>
+    <div id="rec-ui"><span id="rec-dot"></span><span id="rec-time">0:00</span><span style="color:#8696a0;font-size:13px">Grabando, suelta para enviar</span></div>
     <button id="mic-btn" aria-label="Grabar nota de voz">
       <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.10-.60-.39-1.14-1-1.14z"/></svg>
     </button>
@@ -960,9 +961,6 @@ function onSend() {
 /* ---------- Notas de voz del usuario ---------- */
 let mediaRecorder = null, audioChunks = [], recTimer = null, recSecs = 0, recStream = null, isRecording = false;
 
-const MIC_SVG = '<svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.10-.60-.39-1.14-1-1.14z"/></svg>';
-const STOP_SVG = '<svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>';
-
 function fmtTime(s) { return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
 
 function syncMicSend() {
@@ -972,7 +970,7 @@ function syncMicSend() {
 }
 
 async function startRecording() {
-  if (isRecording) { stopRecording(); return; }
+  if (isRecording) return;
   if (!waitingInput || (finished && !desahogoMode)) return;
   var stream;
   try {
@@ -992,11 +990,9 @@ async function startRecording() {
   recTime.textContent = "0:00";
   inputEl.style.display = "none";
   sendBtn.style.display = "none";
-  // El micrófono se vuelve botón de parar: push una vez para grabar, otra para enviar.
-  micBtn.style.display = "";
+  // Mientras el dedo está pegado, el botón se pone rojo: soltar envía.
   micBtn.classList.add("recording");
-  micBtn.innerHTML = STOP_SVG;
-  micBtn.setAttribute("aria-label", "Parar y enviar nota de voz");
+  micBtn.setAttribute("aria-label", "Grabando, suelta para enviar");
   recUi.classList.add("on");
   recStop.style.display = "none";
   recTimer = setInterval(function () { recSecs++; recTime.textContent = fmtTime(recSecs); }, 1000);
@@ -1008,7 +1004,6 @@ function stopRecording() {
   clearInterval(recTimer);
   recUi.classList.remove("on");
   micBtn.classList.remove("recording");
-  micBtn.innerHTML = MIC_SVG;
   micBtn.setAttribute("aria-label", "Grabar nota de voz");
   inputEl.style.display = "";
   syncMicSend();
@@ -1109,7 +1104,21 @@ async function onRecordingStop() {
   }
 }
 
-micBtn.addEventListener("click", startRecording);
+/* Push-to-talk de verdad: dedo pegado para grabar, soltar para enviar. */
+micBtn.addEventListener("touchstart", function (e) {
+  e.preventDefault();
+  startRecording();
+}, { passive: false });
+micBtn.addEventListener("touchend", function (e) {
+  e.preventDefault();
+  stopRecording();
+});
+micBtn.addEventListener("touchcancel", function () { stopRecording(); });
+micBtn.addEventListener("mousedown", function (e) {
+  if (e.button === 0) startRecording();
+});
+window.addEventListener("mouseup", function () { stopRecording(); });
+micBtn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
 recStop.addEventListener("click", stopRecording);
 inputEl.addEventListener("input", syncMicSend);
 
