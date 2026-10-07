@@ -612,6 +612,21 @@ function addVoiceBubble(url, from) {
   scrollDown();
   return row;
 }
+async function transcribeAudio(blob) {
+  var form = new FormData();
+  form.append("file", blob, "nota." + (blob.type.indexOf("mp4") !== -1 ? "mp4" : "webm"));
+  var res = await fetch(SUPABASE_URL + "/functions/v1/tata-stt", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY
+    },
+    body: form
+  });
+  if (!res.ok) throw new Error("stt " + res.status);
+  var data = await res.json();
+  return (data && data.text ? String(data.text).trim() : "");
+}
 
 async function onRecordingStop() {
   var blob = new Blob(audioChunks, { type: (mediaRecorder && mediaRecorder.mimeType) || "audio/webm" });
@@ -623,8 +638,17 @@ async function onRecordingStop() {
     var url = await uploadAudio(blob);
     upRow.remove();
     addVoiceBubble(url, "out");
+    var txRow = addBubble("Escuchando tu nota de voz…", "out");
+    var answer;
+    try {
+      var transcript = await transcribeAudio(blob);
+      answer = transcript || ("[nota de voz] " + url);
+    } catch (e) {
+      answer = "[nota de voz] " + url;
+    }
+    txRow.remove();
     waitingInput = true;
-    submitAnswer("[nota de voz] " + url);
+    submitAnswer(answer);
   } catch (e) {
     upRow.remove();
     addBubble("No pude subir la nota de voz. Intenta de nuevo.", "in");
@@ -632,7 +656,6 @@ async function onRecordingStop() {
     setInputEnabled(true);
   }
 }
-
 micBtn.addEventListener("click", startRecording);
 recStop.addEventListener("click", stopRecording);
 inputEl.addEventListener("input", syncMicSend);
