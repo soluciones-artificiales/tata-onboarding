@@ -606,9 +606,26 @@ function handleDesahogo(text) {
       '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>'
     );
     wireLiveVoiceButton(row, eco);
-    waitingInput = true;
-    setInputEnabled(true);
-    inputEl.focus();
+    // El desahogo lleva a otra parábola: tras 2 intercambios, Tata la ofrece (una vez por historia).
+    var mem2 = loadMemory();
+    var n = (mem2.desahogoCount || 0) + 1;
+    var lista = getParabolas();
+    if (n >= 2 && lista.length < 3 && !mem2.offeredExtra) {
+      saveMemory({ desahogoCount: 0, offeredExtra: true });
+      setTimeout(function () {
+        brotherSay("Mijo, con todo esto que me estás contando, ¿quieres que te eche otra historia?", function () {
+          extraState = "ofrece-historia";
+          waitingInput = true;
+          setInputEnabled(true);
+          inputEl.focus();
+        }, null);
+      }, 1200);
+    } else {
+      saveMemory({ desahogoCount: n });
+      waitingInput = true;
+      setInputEnabled(true);
+      inputEl.focus();
+    }
   }).catch(function () {
     hideTyping();
     logConversacion(text, "Te escucho, mijo. Sigue, que estoy aquí.");
@@ -635,17 +652,26 @@ async function prepareParabolaVoice(p) {
   return urls;
 }
 
+/* Avisos mientras se prepara la historia: la gente se desespera si no sabe que tarda un poquito. */
+function setStatusText(row, text) {
+  var s = row.querySelector(".status-text");
+  if (s) { s.textContent = text; scrollDown(); }
+}
+
 /* Entrega la parábola: texto y voz salen JUNTOS. Si la voz no está lista, no sale el texto. */
-function deliverParabola(p, onReady) {
-  showTyping();
+function deliverParabola(p, onReady, statusRow) {
+  if (statusRow) setStatusText(statusRow, "Ya la tengo escrita. Ahora le estoy poniendo mi voz, ya casi...");
+  else showTyping();
   setInputEnabled(false);
   waitingInput = false;
   prepareParabolaVoice(p).then(function (urls) {
     hideTyping();
+    if (statusRow) statusRow.remove();
     parabolaUrls = urls;
     onReady(urls);
   }).catch(function () {
     hideTyping();
+    if (statusRow) statusRow.remove();
     var row = addBubble(
       "Tuve un problema preparando mi voz para tu historia. ¿Lo intentamos de nuevo?",
       "in",
@@ -660,21 +686,21 @@ function deliverParabola(p, onReady) {
 
 /* Un solo disparo por onboarding: genera, guarda en memoria y la muestra */
 function generateParabolaFlow(isExtra) {
-  showTyping();
   setInputEnabled(false);
   waitingInput = false;
   var payload = buildParabolaPayload(isExtra);
+  var statusRow = addBubble('<span class="status-text">Estoy escribiendo tu historia solo para ti, dame un momentico...</span>', "in");
   tataParabola(payload).then(function (p) {
     deliverParabola(p, function () {
       var lista = getParabolas();
       lista.push(p);
       lista = lista.slice(-3);
-      saveMemory({ parabolas: lista, parabola: p, parabolaAt: Date.now() });
+      saveMemory({ parabolas: lista, parabola: p, parabolaAt: Date.now(), desahogoCount: 0, offeredExtra: false });
       showParabolaBubble(p);
       setTimeout(function () { showClosingSequence(lista.length); }, 1200);
-    });
+    }, statusRow);
   }).catch(function () {
-    hideTyping();
+    statusRow.remove();
     var row = addBubble(
       "Tuve un problema escribiendo tu historia. ¿Lo intentamos de nuevo?",
       "in",
@@ -736,6 +762,20 @@ function handleExtraState(text) {
   } else if (extraState === "pregunta-extra" && YES_SHORT_RE.test(text)) {
     extraState = "pregunta-extra2";
     brotherSay("Cuéntame, te escucho.", function () {}, null);
+  } else if (extraState === "ofrece-historia" && YES_SHORT_RE.test(text)) {
+    extraState = null;
+    pedirOtraParabola();
+  } else if (extraState === "ofrece-historia" && NO_RE.test(text)) {
+    extraState = null;
+    brotherSay("Está bien, mijo. Aquí sigo para lo que necesites.", function () {
+      waitingInput = true;
+      setInputEnabled(true);
+      inputEl.focus();
+    }, null);
+  } else if (extraState === "ofrece-historia") {
+    // Respuesta ambigua: sigue el desahogo normal.
+    extraState = null;
+    handleDesahogo(text);
   } else {
     answers.que_extra = ((answers.que_extra ? answers.que_extra + "\n" : "") + text).slice(0, 8000);
     saveMemory({ que_extra: answers.que_extra });
@@ -786,11 +826,12 @@ function startConversation() {
     setInputEnabled(false);
     brotherSay("Hola " + firstName + ", qué bueno verte de nuevo. Aquí está tu última historia.", function () {
       var last = lista[lista.length - 1];
+      var statusRow = addBubble('<span class="status-text">Le estoy poniendo mi voz a tu historia, ya casi...</span>', "in");
       deliverParabola(last, function () {
         showParabolaBubble(last);
         // El follow-up completo también al volver: las 4 burbujas (incluye lo del beta).
         setTimeout(function () { showClosingSequence(lista.length); }, 1200);
-      });
+      }, statusRow);
     }, null);
   } else if (mem.nombre && mem.finishedAt) {
     // Terminó el onboarding pero la historia no se generó: la generamos ahora.
@@ -948,9 +989,9 @@ function finishConversation() {
 
 function submitAnswer(text) {
   if (!waitingInput) return;
+  if (extraState) { handleExtraState(text); return; }
   if (desahogoMode) { handleDesahogo(text); return; }
   if (finished) return;
-  if (extraState) { handleExtraState(text); return; }
   waitingInput = false;
   setInputEnabled(false);
   var key = answerKeys[step];
