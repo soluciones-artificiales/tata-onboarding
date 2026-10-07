@@ -577,14 +577,14 @@ function stopRecording() {
   if (recStream) { recStream.getTracks().forEach(function (t) { t.stop(); }); recStream = null; }
 }
 
-async function uploadAudio(blob) {
-  var id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + ".webm";
+(b) {blo
+  var mime = blob.type || "audio/webm"; var ext = mime.indexOf("mp4") !== -1 ? "mp4" : (mime.indexOf("ogg") !== -1 ? "ogg" : "webm"); var id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + "." + ext;
   var res = await fetch(SUPABASE_URL + "/storage/v1/object/tata-audios/" + id, {
     method: "POST",
     headers: {
       apikey: SUPABASE_ANON_KEY,
       "Authorization": "Bearer " + SUPABASE_ANON_KEY,
-      "Content-Type": "audio/webm"
+      "Content-Type": mime
     },
     body: blob
   });
