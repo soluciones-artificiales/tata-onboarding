@@ -569,7 +569,7 @@ var TERCERA_HISTORIA = [
 ];
 function showClosingSequence(count) {
   count = count || 1;
-  var firstName = cleanFirstName(answers.nombre) || "mi amor";
+  var firstName = cleanFirstName(answers.nombre) || "mijo";
   var presentacion = PRESENTACIONES[Math.floor(Math.random() * PRESENTACIONES.length)];
   if (count >= 3) {
     brotherSaySeq([
@@ -911,7 +911,7 @@ function brotherSay(text, then, audioSrc, slow) {
 
 function startConversation() {
   var mem = loadMemory();
-  var firstName = cleanFirstName(mem.nombre) || "mi amor";
+  var firstName = cleanFirstName(mem.nombre) || "mijo";
   var lista = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
   if (lista.length) {
     // Ya tiene su historia: la saluda, se la muestra y sigue aprendiendo de la persona.
@@ -1100,8 +1100,8 @@ function submitAnswer(text) {
     if (step === 1) {
       // Después del nombre: Tata lo saluda con SU VOZ, generada en vivo con su nombre.
       saveMemory({ nombre: answers.nombre });
-      var firstName = cleanFirstName(answers.nombre) || "mi amor";
-      var greeting = "Hola " + firstName + ", mi amor, mi cielo, cariño.";
+      var firstName = cleanFirstName(answers.nombre) || "mijo";
+      var greeting = "Hola " + firstName + ", mijo.";
       setTimeout(function () {
         showTyping(); // teclea mientras se genera el audio
         tataTtsUrl(greeting).then(function (url) {
@@ -1115,10 +1115,11 @@ function submitAnswer(text) {
       }, 350);
     } else {
       // Eco empático: Tata muestra que entendió antes de la siguiente pregunta.
+      // Nunca se salta: si el eco falla, reintenta una vez y si no, sale un respaldo cálido local.
       var qAsked = QUESTIONS[step - 1], ansGiven = text;
       setTimeout(function () {
         showTyping();
-        tataEco("ack", qAsked, ansGiven).then(function (eco) {
+        function showEco(eco) {
           hideTyping();
           var row = addBubble(
             escapeHtml(eco),
@@ -1127,10 +1128,13 @@ function submitAnswer(text) {
           );
           wireLiveVoiceButton(row, eco);
           setTimeout(function () { askQuestion(step); }, 700);
-        }).catch(function () {
-          // Si el eco falla, la conversación sigue igual que antes.
-          hideTyping();
-          setTimeout(function () { askQuestion(step); }, 350);
+        }
+        function ecoFallback() {
+          var fn = cleanFirstName(answers.nombre);
+          showEco("Ay" + (fn ? " " + fn : "") + ", mijo, qué fuerte lo que me estás contando. Te escucho, de verdad te escucho.");
+        }
+        tataEco("ack", qAsked, ansGiven).then(showEco).catch(function () {
+          tataEco("ack", qAsked, ansGiven).then(showEco).catch(ecoFallback);
         });
       }, 350);
     }
