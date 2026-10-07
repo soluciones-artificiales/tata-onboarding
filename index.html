@@ -498,10 +498,41 @@ let desahogoMode = false;
 
 /* Tata es una abuelita sabia, cariñosa y emotiva: nada de guion fijo, todo respira y varía. */
 function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+/* Elige sin repetir la última: Tata nunca suena a guion fijo. */
+var _lastPick = {};
+function pickFresh(a, key) {
+  if (!a || a.length < 2) return pick(a);
+  var last = _lastPick[key], s, guard = 0;
+  do { s = pick(a); guard++; } while (s === last && guard < 10);
+  _lastPick[key] = s;
+  return s;
+}
 
-/* Términos cariñosos venezolanos: varían siempre, nunca el mismo. */
-var ENDEARMENTS = ["mi amor", "mi cielo", "gordo", "cariño"];
-function endear() { return pick(ENDEARMENTS); }
+/* Términos cariñosos venezolanos: varían siempre, nunca el mismo.
+   Con género: a una mujer jamás "mijo" ni "gordo"; a un hombre jamás "mija". */
+function inferGenero(nombre) {
+  var n = (nombre || "").trim().toLowerCase();
+  if (!n) return "?";
+  if (/a$/.test(n)) return "f";
+  if (/o$/.test(n)) return "m";
+  return "?";
+}
+function tratoMijo() {
+  var g = inferGenero(cleanFirstName(answers.nombre));
+  if (g === "f") return "mija";
+  if (g === "m") return "mijo";
+  return "mi amor";
+}
+/* Reemplaza "mijo" por el trato correcto según el nombre. */
+function decirMijo(s) { return String(s).replace(/mijo/g, tratoMijo()); }
+var ENDEARMENTS_BASE = ["mi amor", "mi cielo", "cariño"];
+function endear() {
+  var lista = ENDEARMENTS_BASE.slice();
+  var g = inferGenero(cleanFirstName(answers.nombre));
+  if (g === "f") lista.push("gorda");
+  else if (g === "m") lista.push("gordo");
+  return pick(lista);
+}
 
 var PRESENTACIONES = [
   "Yo soy más que una consejera: vengo del futuro y del pasado, pero me puedo integrar a cualquier área de tu vida que quieras solucionar.",
@@ -517,8 +548,9 @@ var CIERRE_BETA = [
 ];
 /* Elegir el tipo de cuento: venezolana o de las de para siempre. Frases variables, y si ya contó una, ofrece la otra. */
 var ELIGE_TIPO_NEUTRO = [
-  "Mijo, ¿te provoca una venezolana o una de esas que son para siempre?",
-  "¿Qué quieres, mijo: un cuento venezolano o uno de esos que son para siempre?"
+  "¿Quieres que te cuente una historia a lo venezolano o una de esas de siempre?",
+  "¿Te cuento una historia a lo venezolano o una de esas que son para siempre?",
+  "¿Qué te provoca: una historia a lo venezolano o una de esas de siempre?"
 ];
 var ELIGE_TIPO_VEN = [
   "Ya te conté una de las de para siempre, ¿quieres una venezolana?",
@@ -562,7 +594,7 @@ function showClosingSequence(count) {
   var presentacion = PRESENTACIONES[Math.floor(Math.random() * PRESENTACIONES.length)];
   if (count >= 3) {
     brotherSaySeq([
-      { text: pick(TERCERA_HISTORIA), audio: null }
+      { text: decirMijo(pick(TERCERA_HISTORIA)), audio: null }
     ], enableDesahogo);
     return;
   }
@@ -609,15 +641,26 @@ function ofrecerTipoParabola(isExtra) {
   var tipos = getTipos();
   var last = tipos[tipos.length - 1];
   var msg;
-  if (last === "venezolana") msg = pick(ELIGE_TIPO_SIEMPRE);
-  else if (last === "para_siempre") msg = pick(ELIGE_TIPO_VEN);
-  else msg = pick(ELIGE_TIPO_NEUTRO);
-  brotherSay(msg, function () {
+  if (last === "venezolana") msg = pickFresh(ELIGE_TIPO_SIEMPRE, "tipo-siempre");
+  else if (last === "para_siempre") msg = pickFresh(ELIGE_TIPO_VEN, "tipo-ven");
+  else msg = pickFresh(ELIGE_TIPO_NEUTRO, "tipo-neutro");
+  showTyping();
+  setTimeout(function () {
+    hideTyping();
+    var row = addBubble(
+      escapeHtml(decirMijo(msg)) +
+      '<br><button class="retry-btn qr-btn" id="qr-ven">A lo venezolano</button> ' +
+      '<button class="retry-btn qr-btn" id="qr-siempre">De esas de siempre</button>',
+      "in"
+    );
+    document.getElementById("qr-ven").addEventListener("click", function () { quickReply("venezolana"); });
+    document.getElementById("qr-siempre").addEventListener("click", function () { quickReply("de esas de siempre"); });
     extraState = "elige-tipo";
     waitingInput = true;
     setInputEnabled(true);
+    inputEl.placeholder = "Elige: venezolana o de siempre";
     inputEl.focus();
-  }, null);
+  }, typingDelay());
 }
 
 function logConversacion(userText, tataText) {
@@ -634,12 +677,12 @@ function pedirOtraParabola() {
   if (lista.length >= 3) {
     waitingInput = false;
     setInputEnabled(false);
-    brotherSay(pick(TERCERA_HISTORIA), function () {}, null);
+    brotherSay(decirMijo(pick(TERCERA_HISTORIA)), function () {}, null);
     return;
   }
   waitingInput = false;
   setInputEnabled(false);
-  brotherSay(pick(OTRA_HISTORIA), function () {
+  brotherSay(decirMijo(pick(OTRA_HISTORIA)), function () {
     ofrecerTipoParabola();
   }, null);
 }
@@ -699,7 +742,7 @@ function handleDesahogo(text) {
     if (n >= 2 && lista.length < 3 && !mem2.offeredExtra) {
       saveMemory({ desahogoCount: 0, offeredExtra: true });
       setTimeout(function () {
-        brotherSay(pick(OFRECE_HISTORIA), function () {
+        brotherSay(decirMijo(pick(OFRECE_HISTORIA)), function () {
           extraState = "ofrece-historia";
           waitingInput = true;
           setInputEnabled(true);
@@ -714,8 +757,8 @@ function handleDesahogo(text) {
     }
   }).catch(function () {
     hideTyping();
-    logConversacion(text, "Te escucho, mijo. Sigue, que estoy aquí.");
-    addBubble("Te escucho, mijo. Sigue, que estoy aquí.", "in");
+    logConversacion(text, decirMijo("Te escucho, mijo. Sigue, que estoy aquí."));
+    addBubble(decirMijo("Te escucho, mijo. Sigue, que estoy aquí."), "in");
     waitingInput = true;
     setInputEnabled(true);
     inputEl.focus();
@@ -835,8 +878,8 @@ function proceedToParable(withThanks) {
   waitingInput = false;
   inputEl.placeholder = "Conversación terminada";
   var msg = withThanks
-    ? "Gracias por contarme eso también, mijo. " + pick(ESPERAME)
-    : pick(ESPERAME);
+    ? "Gracias por contarme eso también, " + tratoMijo() + ". " + decirMijo(pick(ESPERAME))
+    : decirMijo(pick(ESPERAME));
   brotherSay(msg, function () {
     setInputEnabled(false);
     waitingInput = false;
@@ -857,7 +900,7 @@ function handleExtraState(text) {
     pedirOtraParabola();
   } else if (extraState === "ofrece-historia" && NO_RE.test(text)) {
     extraState = null;
-    brotherSay("Está bien, mijo. Aquí sigo para lo que necesites.", function () {
+    brotherSay(decirMijo("Está bien, mijo. Aquí sigo para lo que necesites."), function () {
       waitingInput = true;
       setInputEnabled(true);
       inputEl.focus();
@@ -987,7 +1030,7 @@ function scheduleNudge() {
   var s = step;
   setTimeout(function () {
     if (finished || !waitingInput || step !== s) return;
-    var nudge = pick(NUDGES);
+    var nudge = decirMijo(pick(NUDGES));
     showTyping();
     setTimeout(function () {
       tataTtsUrl(nudge).then(function (url) {
@@ -1187,7 +1230,7 @@ function submitAnswer(text) {
 }
 
 function onSend() {
-  if (!waitingInput || (finished && !desahogoMode)) return;
+  if (!waitingInput || (finished && !desahogoMode && !extraState)) return;
   const text = inputEl.value.trim();
   if (!text) return;
   addBubble(escapeHtml(text), "out");
@@ -1210,7 +1253,7 @@ function syncMicSend() {
 
 async function startRecording() {
   if (isRecording) return;
-  if (!waitingInput || (finished && !desahogoMode)) return;
+  if (!waitingInput || (finished && !desahogoMode && !extraState)) return;
   recWanted = true; // el dedo está pegado
   var stream;
   try {
@@ -1319,7 +1362,7 @@ async function onRecordingStop() {
   if (!blob.size || recSecs < 5) {
     waitingInput = true;
     setInputEnabled(true);
-    if (blob.size) addBubble(pick(NOTA_CORTA), "in");
+    if (blob.size) addBubble(decirMijo(pick(NOTA_CORTA)), "in");
     return;
   }
   waitingInput = false;
@@ -1337,7 +1380,7 @@ async function onRecordingStop() {
     txRow.remove();
     // Si no se entendió nada, no se avanza: se queda en la misma pregunta.
     if (!transcript) {
-      addBubble(pick(NO_ESCUCHE), "in");
+      addBubble(decirMijo(pick(NO_ESCUCHE)), "in");
       waitingInput = true;
       setInputEnabled(true);
       return;
