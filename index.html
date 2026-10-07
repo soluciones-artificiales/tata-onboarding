@@ -410,7 +410,7 @@ async function tataParabola(a) {
           "Authorization": "Bearer " + SUPABASE_ANON_KEY,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz })
+        body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz, tipo: a.tipo || "" })
       }, 90000);
       if (!res.ok) throw new Error("parabola " + res.status);
       var data = await res.json();
@@ -511,27 +511,83 @@ function showParabolaBubble(parabola) {
 
 let desahogoMode = false;
 
-/* Después de la parábola: el cierre de Tata + modo desahogo (ella sigue escuchando) */
+/* Tata es una abuelita sabia, cariñosa y emotiva: nada de guion fijo, todo respira y varía. */
+function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+
+var PRESENTACIONES = [
+  "Yo soy más que una consejera: vengo del futuro y del pasado, pero me puedo integrar a cualquier área de tu vida que quieras solucionar.",
+  "Yo soy más que una contadora de cuentos: vengo del futuro y del pasado, pero me puedo integrar a cualquier área de tu vida que quieras solucionar."
+];
+var CIERRE_CUENTOS = [
+  "Puedo seguirte echando cuentos, pero también puedo ponerme a trabajar para ti en todo lo que necesites.",
+  "Puedo seguirte contando historias, pero también puedo arremangarme y trabajar para ti en lo que necesites."
+];
+var CIERRE_BETA = [
+  "Si quieres, mándame un mensaje en WhatsApp y empezamos. Estamos en beta, y viene mucha más integración por ahí.",
+  "Si quieres, escríbeme por WhatsApp y empezamos. Estamos en beta, pero viene más."
+];
+/* Elegir el tipo de cuento: venezolana o de las de para siempre. Frases variables, y si ya contó una, ofrece la otra. */
+var ELIGE_TIPO_NEUTRO = [
+  "Mijo, ¿te provoca una venezolana o una de esas que son para siempre?",
+  "¿Qué quieres, mijo: un cuento venezolano o uno de esos que son para siempre?"
+];
+var ELIGE_TIPO_VEN = [
+  "Ya te conté una de las de para siempre, ¿quieres una venezolana?",
+  "Como ya te eché una de para siempre, ¿te provoca una venezolana?"
+];
+var ELIGE_TIPO_SIEMPRE = [
+  "Ya te conté una venezolana, ¿quieres una de esas que son para siempre?",
+  "Como ya te eché una venezolana, ¿te provoco una de las de para siempre?"
+];
+var CIERRE_DESAHOGO = [
+  "O nos quedamos aquí para que te desahogues.",
+  "O nos quedamos aquí conversando, para que te desahogues con calma."
+];
+var ESPERAME = [
+  "OK, espérame un momentico que ya te preparo tu sorpresita.",
+  "Dame un momentico, mijo, que ya te estoy preparando tu sorpresita."
+];
+var OTRA_HISTORIA = [
+  "Con gusto, mijo. Espérame un momentico que ya te la preparo.",
+  "Claro que sí, mijo. Dame un momentico que ya te la preparo."
+];
+var NOTA_CORTA = [
+  "Mijo, eso estuvo muy cortico. ¿No tienes más para contarme? Deja el dedo pegado y me cuentas.",
+  "Ay mijo, eso fue muy cortico. ¿No tienes más para contarme? Mantén el dedo pegado y me cuentas."
+];
+var NO_ESCUCHE = [
+  "Mijo, no te pude escuchar bien. ¿Me lo repites?",
+  "Ay mijo, no te escuché bien. ¿Me lo repites, porfa?"
+];
+var OFRECE_HISTORIA = [
+  "Mijo, con todo esto que me estás contando, ¿quieres que te eche otra historia?",
+  "Mijo, con todo lo que me has contado, ¿te provoca que te eche otra historia?"
+];
+var TERCERA_HISTORIA = [
+  "Y esta fue la tercera, mijo. Ahí sí tienes que escribirme por WhatsApp.",
+  "Mijo, ya van tres historias. La próxima me la pides por WhatsApp."
+];
 function showClosingSequence(count) {
   count = count || 1;
   var firstName = cleanFirstName(answers.nombre) || "mi amor";
+  var presentacion = PRESENTACIONES[Math.floor(Math.random() * PRESENTACIONES.length)];
   if (count >= 3) {
     brotherSaySeq([
-      { text: "Y esta fue la tercera, mijo. Ahí sí tienes que escribirme por WhatsApp.", audio: null }
+      { text: pick(TERCERA_HISTORIA), audio: null }
     ], enableDesahogo);
     return;
   }
   if (count === 2) {
     brotherSaySeq([
-      { text: "Ahí tienes otra, " + firstName + ". Si quieres una más, pídemela, o nos quedamos aquí hablando.", audio: null }
+      { text: "Ahí tienes otra, " + firstName + ". " + pick(["Si quieres una más, pídemela, o nos quedamos aquí hablando.", "Si te provoca otra más, pídemela, o seguimos conversando aquí."]), audio: null }
     ], enableDesahogo);
     return;
   }
   brotherSaySeq([
-    { text: firstName + ", pero todo tiene solución, para eso vine a ayudarte. Yo soy más que una consejera: vengo del futuro y del pasado, pero me puedo integrar a cualquier área de tu vida que quieras solucionar.", audio: null },
-    { text: "Puedo seguirte echando cuentos, pero también puedo ponerme a trabajar para ti en todo lo que necesites.", audio: null },
-    { text: "Si quieres, mándame un mensaje en WhatsApp y empezamos. Estamos en beta.", audio: null },
-    { text: "O nos quedamos aquí para que te desahogues.", audio: null }
+    { text: firstName + ", pero todo tiene solución, para eso vine a ayudarte. " + presentacion, audio: null },
+    { text: pick(CIERRE_CUENTOS), audio: null },
+    { text: pick(CIERRE_BETA), audio: null },
+    { text: pick(CIERRE_DESAHOGO), audio: null }
   ], enableDesahogo);
 }
 
@@ -550,6 +606,27 @@ function getParabolas() {
   if (mem.parabola) return [mem.parabola];
   return [];
 }
+function getTipos() {
+  var mem = loadMemory();
+  return mem.tipos || [];
+}
+
+/* Ofrece elegir el tipo de cuento: venezolana o de las de para siempre.
+   Si ya contó una, ofrece la otra para que no se aburra. */
+function ofrecerTipoParabola() {
+  var tipos = getTipos();
+  var last = tipos[tipos.length - 1];
+  var msg;
+  if (last === "venezolana") msg = pick(ELIGE_TIPO_SIEMPRE);
+  else if (last === "para_siempre") msg = pick(ELIGE_TIPO_VEN);
+  else msg = pick(ELIGE_TIPO_NEUTRO);
+  brotherSay(msg, function () {
+    extraState = "elige-tipo";
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+  }, null);
+}
 
 function logConversacion(userText, tataText) {
   var mem = loadMemory();
@@ -565,17 +642,17 @@ function pedirOtraParabola() {
   if (lista.length >= 3) {
     waitingInput = false;
     setInputEnabled(false);
-    brotherSay("Mijo, ya te conté tres historias. Ahí sí tienes que escribirme por WhatsApp.", function () {}, null);
+    brotherSay(pick(TERCERA_HISTORIA), function () {}, null);
     return;
   }
   waitingInput = false;
   setInputEnabled(false);
-  brotherSay("Con gusto, mijo. Espérame un momentico que ya te la preparo.", function () {
-    generateParabolaFlow(true);
+  brotherSay(pick(OTRA_HISTORIA), function () {
+    ofrecerTipoParabola();
   }, null);
 }
 
-function buildParabolaPayload(isExtra) {
+function buildParabolaPayload(isExtra, tipo) {
   var mem = loadMemory();
   var conv = (mem.conversacion || []).map(function (m) { return "Persona: " + m.u + "\nTata: " + m.t; }).join("\n");
   var pesa = answers.que_pesa + (answers.que_extra ? "\n\nAlgo más que me contó: " + answers.que_extra : "");
@@ -584,7 +661,24 @@ function buildParabolaPayload(isExtra) {
     var anteriores = getParabolas();
     if (anteriores.length) pesa += "\n\nHistorias que YA le contaste (cuenta una DIFERENTE: otro nudo, otros personajes, otro giro):\n" + anteriores.join("\n---\n");
   }
-  return { nombre: answers.nombre, que_pesa: pesa, que_quiere: answers.que_quiere, que_voz: answers.que_voz };
+  return { nombre: answers.nombre, que_pesa: pesa, que_quiere: answers.que_quiere, que_voz: answers.que_voz, tipo: tipo || "" };
+}
+
+/* El usuario elige el tipo de cuento: venezolana o de las de para siempre. */
+function handleEligeTipo(text) {
+  var tipo = null;
+  if (/venezolan/i.test(text)) tipo = "venezolana";
+  else if (/para siempre|siempre|antaño|etern/i.test(text)) tipo = "para_siempre";
+  if (!tipo) {
+    // Si no fue claro, lo contrario de la última para no repetir.
+    var ts = getTipos();
+    var l = ts[ts.length - 1];
+    tipo = l === "venezolana" ? "para_siempre" : "venezolana";
+  }
+  extraState = null;
+  waitingInput = false;
+  setInputEnabled(false);
+  generateParabolaFlow(true, tipo);
 }
 
 function handleDesahogo(text) {
@@ -613,7 +707,7 @@ function handleDesahogo(text) {
     if (n >= 2 && lista.length < 3 && !mem2.offeredExtra) {
       saveMemory({ desahogoCount: 0, offeredExtra: true });
       setTimeout(function () {
-        brotherSay("Mijo, con todo esto que me estás contando, ¿quieres que te eche otra historia?", function () {
+        brotherSay(pick(OFRECE_HISTORIA), function () {
           extraState = "ofrece-historia";
           waitingInput = true;
           setInputEnabled(true);
@@ -685,17 +779,20 @@ function deliverParabola(p, onReady, statusRow) {
 }
 
 /* Un solo disparo por onboarding: genera, guarda en memoria y la muestra */
-function generateParabolaFlow(isExtra) {
+function generateParabolaFlow(isExtra, tipo) {
   setInputEnabled(false);
   waitingInput = false;
-  var payload = buildParabolaPayload(isExtra);
+  var payload = buildParabolaPayload(isExtra, tipo);
   var statusRow = addBubble('<span class="status-text">Estoy escribiendo tu historia solo para ti, dame un momentico...</span>', "in");
   tataParabola(payload).then(function (p) {
     deliverParabola(p, function () {
       var lista = getParabolas();
       lista.push(p);
       lista = lista.slice(-3);
-      saveMemory({ parabolas: lista, parabola: p, parabolaAt: Date.now(), desahogoCount: 0, offeredExtra: false });
+      var tipos = getTipos();
+      tipos.push(tipo || "");
+      tipos = tipos.slice(-3);
+      saveMemory({ parabolas: lista, tipos: tipos, parabola: p, parabolaAt: Date.now(), desahogoCount: 0, offeredExtra: false });
       showParabolaBubble(p);
       setTimeout(function () { showClosingSequence(lista.length); }, 1200);
     }, statusRow);
@@ -745,8 +842,8 @@ function proceedToParable(withThanks) {
   waitingInput = false;
   inputEl.placeholder = "Conversación terminada";
   var msg = withThanks
-    ? "Gracias por contarme eso también. OK, espérame un momentico que ya te preparo tu sorpresita."
-    : "OK, espérame un momentico que ya te preparo tu sorpresita.";
+    ? "Gracias por contarme eso también, mijo. " + pick(ESPERAME)
+    : pick(ESPERAME);
   brotherSay(msg, function () {
     setInputEnabled(false);
     waitingInput = false;
@@ -776,6 +873,8 @@ function handleExtraState(text) {
     // Respuesta ambigua: sigue el desahogo normal.
     extraState = null;
     handleDesahogo(text);
+  } else if (extraState === "elige-tipo") {
+    handleEligeTipo(text);
   } else {
     answers.que_extra = ((answers.que_extra ? answers.que_extra + "\n" : "") + text).slice(0, 8000);
     saveMemory({ que_extra: answers.que_extra });
@@ -1173,7 +1272,7 @@ async function onRecordingStop() {
   if (!blob.size || recSecs < 5) {
     waitingInput = true;
     setInputEnabled(true);
-    if (blob.size) addBubble("Mijo, eso estuvo muy cortico. ¿No tienes más para contarme? Toca el micrófono y me cuentas.", "in");
+    if (blob.size) addBubble(pick(NOTA_CORTA), "in");
     return;
   }
   waitingInput = false;
@@ -1191,7 +1290,7 @@ async function onRecordingStop() {
     txRow.remove();
     // Si no se entendió nada, no se avanza: se queda en la misma pregunta.
     if (!transcript) {
-      addBubble("Mijo, no te pude escuchar bien. ¿Me lo repites?", "in");
+      addBubble(pick(NO_ESCUCHE), "in");
       waitingInput = true;
       setInputEnabled(true);
       return;
