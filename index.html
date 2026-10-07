@@ -577,7 +577,7 @@ function stopRecording() {
   if (recStream) { recStream.getTracks().forEach(function (t) { t.stop(); }); recStream = null; }
 }
 
-(b) {blo
+async function uploadAudio(blob) {
   var mime = blob.type || "audio/webm"; var ext = mime.indexOf("mp4") !== -1 ? "mp4" : (mime.indexOf("ogg") !== -1 ? "ogg" : "webm"); var id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + "." + ext;
   var res = await fetch(SUPABASE_URL + "/storage/v1/object/tata-audios/" + id, {
     method: "POST",
