@@ -959,7 +959,7 @@ function onSend() {
 }
 
 /* ---------- Notas de voz del usuario ---------- */
-let mediaRecorder = null, audioChunks = [], recTimer = null, recSecs = 0, recStream = null, isRecording = false;
+let mediaRecorder = null, audioChunks = [], recTimer = null, recSecs = 0, recStream = null, isRecording = false, recWanted = false;
 
 function fmtTime(s) { return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
 
@@ -972,11 +972,19 @@ function syncMicSend() {
 async function startRecording() {
   if (isRecording) return;
   if (!waitingInput || (finished && !desahogoMode)) return;
+  recWanted = true; // el dedo está pegado
   var stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) {
+    recWanted = false;
     addBubble("No pude acceder al micrófono. Revisa el permiso en tu navegador.", "in");
+    return;
+  }
+  // Si soltó el dedo mientras se pedía el micrófono (o salió el permiso),
+  // no arrancar: soltar la pista y no dejar nada corriendo.
+  if (!recWanted) {
+    stream.getTracks().forEach(function (t) { t.stop(); });
     return;
   }
   recStream = stream;
@@ -999,6 +1007,7 @@ async function startRecording() {
 }
 
 function stopRecording() {
+  recWanted = false; // el dedo se soltó: aunque el micrófono aún no arranque, no debe arrancar
   if (!isRecording) return;
   isRecording = false;
   clearInterval(recTimer);
