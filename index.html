@@ -364,8 +364,18 @@ function wirePlayButton(row, audioSrc) {
 }
 
 /* ---------- Voz viva de Tata: saludo generado en el momento (Edge Function -> ElevenLabs) ---------- */
+/* fetch con timeout: si la red se queda colgada, fallar en vez de "teclear" para siempre */
+async function fetchTimeout(url, opts, ms) {
+  var ctrl = new AbortController();
+  var t = setTimeout(function () { ctrl.abort(); }, ms || 60000);
+  try {
+    return await fetch(url, Object.assign({}, opts, { signal: ctrl.signal }));
+  } finally {
+    clearTimeout(t);
+  }
+}
 async function tataTtsUrl(text) {
-  const res = await fetch(SUPABASE_URL + "/functions/v1/tata-tts", {
+  const res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-tts", {
     method: "POST",
     headers: {
       "apikey": SUPABASE_ANON_KEY,
@@ -389,20 +399,27 @@ function cleanFirstName(n) {
 }
 /* ---------- Parábola personalizada: tata-parabola + voz de Tata por fragmentos ---------- */
 async function tataParabola(a) {
-  const res = await fetch(SUPABASE_URL + "/functions/v1/tata-parabola", {
-    method: "POST",
-    headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz })
-  });
-  if (!res.ok) throw new Error("parabola " + res.status);
-  var data = await res.json();
-  var p = data && data.parabola ? String(data.parabola).trim() : "";
-  if (!p) throw new Error("parabola vacía");
-  return p;
+  // Si el modelo devuelve vacío o falla, reintentar solo antes de rendirse.
+  var lastErr = new Error("parabola falló");
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-parabola", {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz })
+      }, 90000);
+      if (!res.ok) throw new Error("parabola " + res.status);
+      var data = await res.json();
+      var p = data && data.parabola ? String(data.parabola).trim() : "";
+      if (!p) throw new Error("parabola vacía");
+      return p;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
 }
 
 /* Fragmentos cortos para que la voz no se degrade (anti-drift): párrafos o bloques de ~2 oraciones */
@@ -597,6 +614,45 @@ function handleDesahogo(text) {
   });
 }
 
+/* Prepara la voz completa de la parábola, con reintentos por fragmento.
+   Si no se logra, falla: el texto NUNCA se muestra sin su voz lista. */
+async function prepareParabolaVoice(p) {
+  var parts = splitParabola(p);
+  var urls = [];
+  for (var i = 0; i < parts.length; i++) {
+    var u = null;
+    for (var att = 0; att < 3 && !u; att++) {
+      try { u = await tataTtsUrl(parts[i]); } catch (e) { u = null; }
+    }
+    if (!u) throw new Error("voz no lista");
+    urls.push(u);
+  }
+  return urls;
+}
+
+/* Entrega la parábola: texto y voz salen JUNTOS. Si la voz no está lista, no sale el texto. */
+function deliverParabola(p, onReady) {
+  showTyping();
+  setInputEnabled(false);
+  waitingInput = false;
+  prepareParabolaVoice(p).then(function (urls) {
+    hideTyping();
+    parabolaUrls = urls;
+    onReady(urls);
+  }).catch(function () {
+    hideTyping();
+    var row = addBubble(
+      "Tuve un problema preparando mi voz para tu historia. ¿Lo intentamos de nuevo?",
+      "in",
+      '<br><button class="retry-btn" id="retry-delivery">Reintentar</button>'
+    );
+    document.getElementById("retry-delivery").addEventListener("click", function () {
+      row.remove();
+      deliverParabola(p, onReady);
+    });
+  });
+}
+
 /* Un solo disparo por onboarding: genera, guarda en memoria y la muestra */
 function generateParabolaFlow(isExtra) {
   showTyping();
@@ -604,26 +660,14 @@ function generateParabolaFlow(isExtra) {
   waitingInput = false;
   var payload = buildParabolaPayload(isExtra);
   tataParabola(payload).then(function (p) {
-    // La voz se prepara ANTES de mostrar el texto: la respuesta sale completa.
-    var parts = splitParabola(p);
-    var urls = [];
-    var i = 0;
-    function nextFrag() {
-      if (i >= parts.length) {
-        hideTyping();
-        var lista = getParabolas();
-        lista.push(p);
-        lista = lista.slice(-3);
-        saveMemory({ parabolas: lista, parabola: p, parabolaAt: Date.now() });
-        parabolaUrls = urls;
-        showParabolaBubble(p);
-        setTimeout(function () { showClosingSequence(lista.length); }, 1200);
-        return;
-      }
-      tataTtsUrl(parts[i]).then(function (u) { urls.push(u); i++; nextFrag(); })
-        .catch(function () { i++; nextFrag(); });
-    }
-    nextFrag();
+    deliverParabola(p, function () {
+      var lista = getParabolas();
+      lista.push(p);
+      lista = lista.slice(-3);
+      saveMemory({ parabolas: lista, parabola: p, parabolaAt: Date.now() });
+      showParabolaBubble(p);
+      setTimeout(function () { showClosingSequence(lista.length); }, 1200);
+    });
   }).catch(function () {
     hideTyping();
     var row = addBubble(
@@ -632,8 +676,8 @@ function generateParabolaFlow(isExtra) {
       '<br><button class="retry-btn" id="retry-parabola">Reintentar</button>'
     );
     document.getElementById("retry-parabola").addEventListener("click", function () {
-      this.disabled = true;
-      generateParabolaFlow();
+      row.remove();
+      generateParabolaFlow(isExtra);
     });
   });
 }
@@ -643,7 +687,7 @@ async function tataEco(modo, pregunta, ultima) {
   var ctx = "Qué le pesa: " + (answers.que_pesa || "(no dijo)") +
     "\nQué quiere: " + (answers.que_quiere || "(no dijo)") +
     "\nQué voz le dice que no puede: " + (answers.que_voz || "(no dijo)");
-  const res = await fetch(SUPABASE_URL + "/functions/v1/tata-eco", {
+  const res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-eco", {
     method: "POST",
     headers: {
       "apikey": SUPABASE_ANON_KEY,
@@ -736,13 +780,16 @@ function startConversation() {
     finished = true;
     setInputEnabled(false);
     brotherSay("Hola " + firstName + ", qué bueno verte de nuevo. Aquí está tu última historia.", function () {
-      showParabolaBubble(lista[lista.length - 1]);
-      setTimeout(function () {
-        addBubble(escapeHtml(lista.length >= 3
-          ? "Seguimos aquí. Ya te conté tus tres historias, pero te sigo escuchando."
-          : "Seguimos aquí. Si quieres otra historia, pídemela, o cuéntame lo que quieras."), "in");
-        enableDesahogo();
-      }, 1200);
+      var last = lista[lista.length - 1];
+      deliverParabola(last, function () {
+        showParabolaBubble(last);
+        setTimeout(function () {
+          addBubble(escapeHtml(lista.length >= 3
+            ? "Seguimos aquí. Ya te conté tus tres historias, pero te sigo escuchando."
+            : "Seguimos aquí. Si quieres otra historia, pídemela, o cuéntame lo que quieras."), "in");
+          enableDesahogo();
+        }, 1200);
+      });
     }, null);
   } else if (mem.nombre && mem.finishedAt) {
     // Terminó el onboarding pero la historia no se generó: la generamos ahora.
@@ -834,7 +881,7 @@ function answerHelpQuestion() {
 }
 
 async function saveAnswers() {
-  const res = await fetch(SUPABASE_URL + "/rest/v1/tata_onboarding", {
+  const res = await fetchTimeout(SUPABASE_URL + "/rest/v1/tata_onboarding", {
     method: "POST",
     headers: {
       "apikey": SUPABASE_ANON_KEY,
@@ -852,32 +899,36 @@ async function saveAnswers() {
   if (!res.ok) throw new Error("Supabase respondió " + res.status);
 }
 
+function showResumenStep(texto) {
+  hideTyping();
+  var row = addBubble(
+    escapeHtml(texto),
+    "in",
+    '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button> <button class="retry-btn" id="reset-memory">Empezar de nuevo</button>'
+  );
+  wireLiveVoiceButton(row, texto);
+  document.getElementById("reset-memory").addEventListener("click", function () {
+    clearMemory();
+    location.reload();
+  });
+  extraState = "pregunta-extra";
+  waitingInput = true;
+  setInputEnabled(true);
+  inputEl.placeholder = "Escribe un mensaje";
+  inputEl.focus();
+}
+
 function finishConversation() {
   showTyping();
   saveAnswers().then(function () {
     saveMemory({ answers: { nombre: answers.nombre, que_pesa: answers.que_pesa, que_quiere: answers.que_quiere, que_voz: answers.que_voz, que_extra: answers.que_extra }, finishedAt: Date.now() });
     // Resumen empático de todo lo contado + pregunta si quiere agregar algo más.
     tataEco("resumen", null, null).then(function (texto) {
-      hideTyping();
-      var row = addBubble(
-        escapeHtml(texto),
-        "in",
-        '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button> <button class="retry-btn" id="reset-memory">Empezar de nuevo</button>'
-      );
-      wireLiveVoiceButton(row, texto);
-      document.getElementById("reset-memory").addEventListener("click", function () {
-        clearMemory();
-        location.reload();
-      });
-      extraState = "pregunta-extra";
-      waitingInput = true;
-      setInputEnabled(true);
-      inputEl.placeholder = "Escribe un mensaje";
-      inputEl.focus();
+      showResumenStep(texto);
     }).catch(function () {
-      // Si el resumen falla, seguir con el flujo directo a la parábola.
-      hideTyping();
-      proceedToParable(false);
+      // Si el eco falla, igual se hace la pregunta con un resumen genérico: nunca saltársela.
+      var firstName = cleanFirstName(answers.nombre) || "mi cielo";
+      showResumenStep("Bueno, " + firstName + ", ya me contaste lo que te pesa, lo que quieres de verdad y esa voz que te dice que no puedes. ¿Crees que te hace falta contarme algo más antes de darte tu sorpresita?");
     });
   }).catch(function () {
     hideTyping();
@@ -1024,7 +1075,7 @@ async function uploadAudio(blob) {
   var mime = blob.type || "audio/webm";
   var ext = mime.indexOf("mp4") !== -1 ? "mp4" : (mime.indexOf("ogg") !== -1 ? "ogg" : "webm");
   var id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + "." + ext;
-  var res = await fetch(SUPABASE_URL + "/storage/v1/object/tata-audios/" + id, {
+  var res = await fetchTimeout(SUPABASE_URL + "/storage/v1/object/tata-audios/" + id, {
     method: "POST",
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -1061,7 +1112,7 @@ function addVoiceBubble(url, from) {
 async function transcribeAudio(blob) {
   var form = new FormData();
   form.append("file", blob, "nota." + (blob.type.indexOf("mp4") !== -1 ? "mp4" : "webm"));
-  var res = await fetch(SUPABASE_URL + "/functions/v1/tata-stt", {
+  var res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-stt", {
     method: "POST",
     headers: {
       "apikey": SUPABASE_ANON_KEY,
