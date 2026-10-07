@@ -369,7 +369,13 @@ async function tataTtsUrl(text) {
   return URL.createObjectURL(blob);
 }
 function cleanFirstName(n) {
-  return String(n || "").trim().split(" ")[0].replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/g, "").slice(0, 24);
+  var skip = /^(hola|buenas|buenos|buenosdias|ey|oye|saludos|me|llamo|soy|mi|es|yo)$/i;
+  var words = String(n || "").trim().split(/\s+/);
+  for (var i = 0; i < words.length; i++) {
+    var w = words[i].replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/g, "");
+    if (w && !skip.test(w)) return w.slice(0, 24);
+  }
+  return "";
 }
 function sayGreetingSeq(greeting, greetingAudioUrl) {
   brotherSaySeq([
