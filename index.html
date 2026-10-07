@@ -251,6 +251,25 @@ const QUESTIONS = [
   "¿Qué voz te dice que no puedes?"
 ];
 
+/* ---------- Memoria de Tata (este dispositivo) ---------- */
+var MEM_KEY = "tata-memory-v1";
+function loadMemory() {
+  try {
+    var m = JSON.parse(localStorage.getItem(MEM_KEY) || "null");
+    return (m && typeof m === "object") ? m : {};
+  } catch (e) { return {}; }
+}
+function saveMemory(patch) {
+  try {
+    var m = loadMemory();
+    for (var k in patch) m[k] = patch[k];
+    localStorage.setItem(MEM_KEY, JSON.stringify(m));
+  } catch (e) { /* almacenamiento no disponible */ }
+}
+function clearMemory() {
+  try { localStorage.removeItem(MEM_KEY); } catch (e) {}
+}
+
 let step = 0;            // índice de la próxima pregunta por hacer
 let waitingInput = false;
 let finished = false;
@@ -380,8 +399,20 @@ function brotherSay(text, then, audioSrc, slow) {
 }
 
 function startConversation() {
-  setInputEnabled(false);
-  brotherSay("Hola, ¿cómo te llamas?", null, "t1.mp3");
+  var mem = loadMemory();
+  if (mem.nombre) {
+    // La persona ya estuvo aquí: la saluda por su nombre y sigue con las preguntas.
+    answers.nombre = mem.nombre;
+    step = 1;
+    var firstName = cleanFirstName(mem.nombre) || "mi amor";
+    setInputEnabled(false);
+    brotherSay("Hola " + firstName + ", qué bueno verte de nuevo.", function () {
+      askQuestion(1);
+    }, null);
+  } else {
+    setInputEnabled(false);
+    brotherSay("Hola, ¿cómo te llamas?", null, "t1.mp3");
+  }
 }
 
 function brotherSaySeq(items, then) {
@@ -470,7 +501,16 @@ function finishConversation() {
   saveAnswers().then(function () {
     hideTyping();
     const firstName = answers.nombre.split(" ")[0];
-    addBubble(escapeHtml("Gracias, " + firstName + ". Ya guardé tus respuestas. Tu historia viene en camino."), "in");
+    saveMemory({ answers: { nombre: answers.nombre, que_pesa: answers.que_pesa, que_quiere: answers.que_quiere, que_voz: answers.que_voz }, finishedAt: Date.now() });
+    const row = addBubble(
+      escapeHtml("Gracias, " + firstName + ". Ya guardé tus respuestas. Tu historia viene en camino."),
+      "in",
+      '<br><button class="retry-btn" id="reset-memory">Empezar de nuevo</button>'
+    );
+    document.getElementById("reset-memory").addEventListener("click", function () {
+      clearMemory();
+      location.reload();
+    });
     finished = true;
     setInputEnabled(false);
     inputEl.placeholder = "Conversación terminada";
@@ -499,6 +539,7 @@ function submitAnswer(text) {
   if (step < QUESTIONS.length) {
     if (step === 1) {
       // Después del nombre: Tata lo saluda con SU VOZ, generada en vivo con su nombre.
+      saveMemory({ nombre: answers.nombre });
       var firstName = cleanFirstName(answers.nombre) || "mi amor";
       var greeting = "Hola " + firstName + ", mi amor, mi cielo, cariño.";
       setTimeout(function () {
@@ -578,7 +619,9 @@ function stopRecording() {
 }
 
 async function uploadAudio(blob) {
-  var mime = blob.type || "audio/webm"; var ext = mime.indexOf("mp4") !== -1 ? "mp4" : (mime.indexOf("ogg") !== -1 ? "ogg" : "webm"); var id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + "." + ext;
+  var mime = blob.type || "audio/webm";
+  var ext = mime.indexOf("mp4") !== -1 ? "mp4" : (mime.indexOf("ogg") !== -1 ? "ogg" : "webm");
+  var id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + "." + ext;
   var res = await fetch(SUPABASE_URL + "/storage/v1/object/tata-audios/" + id, {
     method: "POST",
     headers: {
@@ -612,6 +655,7 @@ function addVoiceBubble(url, from) {
   scrollDown();
   return row;
 }
+
 async function transcribeAudio(blob) {
   var form = new FormData();
   form.append("file", blob, "nota." + (blob.type.indexOf("mp4") !== -1 ? "mp4" : "webm"));
@@ -656,6 +700,7 @@ async function onRecordingStop() {
     setInputEnabled(true);
   }
 }
+
 micBtn.addEventListener("click", startRecording);
 recStop.addEventListener("click", stopRecording);
 inputEl.addEventListener("input", syncMicSend);
