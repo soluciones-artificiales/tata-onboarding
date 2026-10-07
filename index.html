@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Tata (beta)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #0e0e0e;
+    display: flex;
+    justify-content: center;
+  }
+  #chat-shell {
+    width: 100%;
+    max-width: 480px;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: #0e0e0e;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Header estilo WhatsApp */
+  #chat-header {
+    background: #161616;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    gap: 12px;
+    flex-shrink: 0;
+    z-index: 2;
+    box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  }
+  #avatar {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    background: #128C7E;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 600;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  #avatar img { width: 100%; height: 100%; object-fit: cover; }
+  #header-text { display: flex; flex-direction: column; line-height: 1.25; }
+  #header-name { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  #beta-tag {
+    font-size: 10px; font-weight: 500;
+    background: rgba(255,255,255,.22);
+    border-radius: 8px;
+    padding: 1px 7px;
+    letter-spacing: .3px;
+  }
+  #header-status { font-size: 12px; color: #d1e7dd; }
+  /* Área de mensajes */
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 12px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .msg-row { display: flex; }
+  .msg-row.in { justify-content: flex-start; }
+  .msg-row.out { justify-content: flex-end; }
+  .bubble {
+    max-width: 82%;
+    padding: 7px 10px 5px;
+    border-radius: 8px;
+    font-size: 15.5px;
+    line-height: 1.4;
+    position: relative;
+    word-wrap: break-word;
+    box-shadow: 0 1px 1px rgba(0,0,0,.18);
+  }
+  .msg-row.in .bubble { background: #262626; color: #e9edef; border-top-left-radius: 0; }
+  .msg-row.in .bubble::before {
+    content: "";
+    position: absolute; top: 0; left: -7px;
+    border: 4px solid transparent;
+    border-top-color: #262626; border-right-color: #262626;
+  }
+  .msg-row.out .bubble { background: #005c4b; color: #e9edef; border-top-right-radius: 0; }
+  .msg-row.out .bubble::before {
+    content: "";
+    position: absolute; top: 0; right: -7px;
+    border: 4px solid transparent;
+    border-top-color: #005c4b; border-left-color: #005c4b;
+  }
+  .msg-time {
+    display: block;
+    text-align: right;
+    font-size: 11px;
+    color: #8696a0;
+    margin-top: 2px;
+  }
+  .msg-time .checks { color: #53bdeb; font-size: 12px; margin-left: 3px; }
+  /* Aviso de privacidad tipo chip */
+  .privacy-chip {
+    align-self: center;
+    background: #182229;
+    color: #ffd279;
+    font-size: 12.5px;
+    line-height: 1.45;
+    text-align: center;
+    border-radius: 8px;
+    padding: 7px 12px;
+    max-width: 92%;
+    box-shadow: 0 1px 1px rgba(0,0,0,.15);
+    margin: 4px 0;
+  }
+  /* Indicador escribiendo */
+  .typing-dots { display: inline-flex; gap: 4px; padding: 4px 2px; }
+  .typing-dots span {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #8696a0;
+    animation: blink 1.2s infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: .2s; }
+  .typing-dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 60%, 100% { opacity: .3; } 30% { opacity: 1; } }
+  /* Barra de input */
+  #input-bar {
+    background: #161616;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  #text-input {
+    flex: 1;
+    border: none;
+    outline: none;
+    border-radius: 22px;
+    padding: 11px 16px;
+    font-size: 16px;
+    font-family: inherit;
+    background: #2b2b2b;
+    color: #e9edef;
+  }
+  #send-btn {
+    width: 46px; height: 46px;
+    border: none;
+    border-radius: 50%;
+    background: #00a884;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  #send-btn:active { background: #008f6f; }
+  #send-btn:disabled { background: #a9c9c2; cursor: default; }
+  #send-btn svg { width: 22px; height: 22px; fill: #fff; }
+  .retry-btn {
+    margin-top: 6px;
+    background: #00a884; color: #fff;
+    border: none; border-radius: 16px;
+    padding: 7px 16px;
+    font-size: 14px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .retry-btn:active { background: #008f6f; }
+  /* Botón de micrófono */
+  #mic-btn {
+    width: 46px; height: 46px;
+    border: none; border-radius: 50%;
+    background: #00a884;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0;
+  }
+  #mic-btn:active { background: #008f6f; }
+  #mic-btn:disabled { background: #3a4a52; cursor: default; }
+  #mic-btn svg { width: 22px; height: 22px; fill: #fff; }
+  /* UI de grabación */
+  #rec-ui { flex: 1; display: none; align-items: center; gap: 10px; color: #e9edef; font-size: 15px; }
+  #rec-ui.on { display: flex; }
+  #rec-dot { width: 12px; height: 12px; border-radius: 50%; background: #ff3b30; animation: blink 1s infinite; flex-shrink: 0; }
+  #rec-stop {
+    width: 46px; height: 46px; border: none; border-radius: 50%;
+    background: #ff3b30; cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #rec-stop svg { width: 18px; height: 18px; fill: #fff; }
+  /* Nota de voz */
+  audio.voice-note { width: 210px; height: 42px; outline: none; margin-top: 2px; }
+  /* Botón escuchar en burbujas de Brother */
+  .play-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #00a884; border: none; cursor: pointer;
+    vertical-align: middle; margin-right: 8px;
+  }
+  .play-btn svg { width: 16px; height: 16px; fill: #fff; }
+  .play-btn.playing { background: #008f6f; }
+</style>
+</head>
+<body>
+<div id="chat-shell">
+  <div id="chat-header">
+    <div id="avatar"><img src="tata-foto.jpg" alt="Tata"></div>
+    <div id="header-text">
+      <div id="header-name">Tata <span id="beta-tag">beta</span></div>
+      <div id="header-status">en línea</div>
+    </div>
+  </div>
+  <div id="messages"></div>
+  <div id="input-bar">
+    <input id="text-input" type="text" placeholder="Escribe un mensaje" autocomplete="off" enterkeyhint="send">
+    <div id="rec-ui"><span id="rec-dot"></span><span id="rec-time">0:00</span><span style="color:#8696a0;font-size:13px">Grabando, toca parar para enviar</span></div>
+    <button id="mic-btn" aria-label="Grabar nota de voz">
+      <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.10-.60-.39-1.14-1-1.14z"/></svg>
+    </button>
+    <button id="send-btn" aria-label="Enviar" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
+    <button id="rec-stop" aria-label="Parar y enviar" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   CREDENCIALES DE SUPABASE: rellenar antes de publicar
+   ============================================================ */
+const SUPABASE_URL = "https://sjsnnumwshvtxahpdszq.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqc25udW13c2h2dHhhaHBkc3pxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNTE1MTgsImV4cCI6MjEwNjkyNzUxOH0.3PnzdavX4l2o8Q2Zj1jwwZtEDa3FiZnFGEJgNNREihc";
+/* ============================================================ */
+
+const messagesEl = document.getElementById("messages");
+const inputEl = document.getElementById("text-input");
+const sendBtn = document.getElementById("send-btn");
+const micBtn = document.getElementById("mic-btn");
+const recUi = document.getElementById("rec-ui");
+const recStop = document.getElementById("rec-stop");
+const recTime = document.getElementById("rec-time");
+
+const answers = { nombre: "", que_pesa: "", que_quiere: "", que_voz: "" };
+const answerKeys = ["nombre", "que_pesa", "que_quiere", "que_voz"];
+
+const QUESTIONS = [
+  "¿Cómo te llamas?",
+  "¿Qué te pesa ahorita?",
+  "¿Qué quieres de verdad?",
+  "¿Qué voz te dice que no puedes?"
+];
+
+let step = 0;            // índice de la próxima pregunta por hacer
+let waitingInput = false;
+let finished = false;
+
+function now() {
+  return new Date().toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function scrollDown() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function addBubble(text, from, extraHtml) {
+  const row = document.createElement("div");
+  row.className = "msg-row " + from;
+  const checks = from === "out" ? '<span class="checks">✓✓</span>' : "";
+  row.innerHTML = '<div class="bubble">' + text +
+    (extraHtml || "") +
+    '<span class="msg-time">' + now() + checks + "</span></div>";
+  messagesEl.appendChild(row);
+  scrollDown();
+  return row;
+}
+
+function addPrivacyChip() {
+  const chip = document.createElement("div");
+  chip.className = "privacy-chip";
+  chip.textContent = "Tus respuestas se guardan para crear tu experiencia personalizada. Solo las ve el equipo de Diego.";
+  messagesEl.appendChild(chip);
+  scrollDown();
+}
+
+let typingRow = null;
+function showTyping() {
+  typingRow = document.createElement("div");
+  typingRow.className = "msg-row in";
+  typingRow.innerHTML = '<div class="bubble"><span class="typing-dots"><span></span><span></span><span></span></span></div>';
+  messagesEl.appendChild(typingRow);
+  scrollDown();
+  setInputEnabled(false);
+}
+function hideTyping() {
+  if (typingRow) { typingRow.remove(); typingRow = null; }
+}
+
+function setInputEnabled(on) {
+  inputEl.disabled = !on;
+  sendBtn.disabled = !on;
+  micBtn.disabled = !on;
+  if (on) inputEl.focus();
+}
+
+/* ---------- Voz de Brother (TTS pregenerado, mi voz) ---------- */
+let currentAudio = null, currentPlayBtn = null;
+function toggleBrotherAudio(src, btn) {
+  if (currentAudio && !currentAudio.paused && currentPlayBtn === btn) {
+    currentAudio.pause();
+    btn.classList.remove("playing");
+    return;
+  }
+  if (currentAudio) {
+    currentAudio.pause();
+    if (currentPlayBtn) currentPlayBtn.classList.remove("playing");
+  }
+  currentAudio = new Audio(src);
+  currentPlayBtn = btn;
+  btn.classList.add("playing");
+  currentAudio.onended = function () { btn.classList.remove("playing"); };
+  currentAudio.play().catch(function () { btn.classList.remove("playing"); });
+}
+
+var PLAY_SVG = '<button class="play-btn" aria-label="Escuchar"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>';
+
+function wirePlayButton(row, audioSrc) {
+  var btn = row.querySelector(".play-btn");
+  if (btn) btn.addEventListener("click", function () { toggleBrotherAudio(audioSrc, btn); });
+}
+
+/* ---------- Voz viva de Tata: saludo generado en el momento (Edge Function -> ElevenLabs) ---------- */
+async function tataTtsUrl(text) {
+  const res = await fetch(SUPABASE_URL + "/functions/v1/tata-tts", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ text: text })
+  });
+  if (!res.ok) throw new Error("tts " + res.status);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+function cleanFirstName(n) {
+  return String(n || "").trim().split(" ")[0].replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/g, "").slice(0, 24);
+}
+function sayGreetingSeq(greeting, greetingAudioUrl) {
+  brotherSaySeq([
+    { text: greeting, audio: greetingAudioUrl },
+    { text: "te voy a hacer preguntas que tal vez sean un poco incómodas de responder.", audio: "t2.mp3" },
+    { text: "Pero si confías en mí, te prometo que valdrá la pena.", audio: "t3.mp3" }
+  ], function () {
+    addPrivacyChip();
+    setTimeout(function () { askQuestion(step); }, 700);
+  });
+}
+
+/* ---------- Ritmo humano: siempre 1-2s "tecleando" ---------- */
+function typingDelay() { return 1000 + Math.random() * 1000; }
+function typingDelaySlow() { return 2600 + Math.random() * 900; }
+
+function brotherSay(text, then, audioSrc, slow) {
+  showTyping();
+  setTimeout(function () {
+    hideTyping();
+    var row = addBubble((audioSrc ? PLAY_SVG : "") + escapeHtml(text), "in");
+    if (audioSrc) wirePlayButton(row, audioSrc);
+    setInputEnabled(true);
+    waitingInput = true;
+    if (then) then();
+  }, slow ? typingDelaySlow() : typingDelay());
+}
+
+function startConversation() {
+  setInputEnabled(false);
+  brotherSay("Hola, ¿cómo te llamas?", null, "t1.mp3");
+}
+
+function brotherSaySeq(items, then) {
+  setInputEnabled(false);
+  waitingInput = false;
+  function next(i) {
+    if (i >= items.length) {
+      setInputEnabled(true);
+      waitingInput = true;
+      if (then) then();
+      return;
+    }
+    showTyping();
+    setTimeout(function () {
+      hideTyping();
+      var row = addBubble((items[i].audio ? PLAY_SVG : "") + escapeHtml(items[i].text), "in");
+      if (items[i].audio) wirePlayButton(row, items[i].audio);
+      setTimeout(function () { next(i + 1); }, 600);
+    }, typingDelay());
+  }
+  next(0);
+}
+
+var QUESTION_AUDIO = [null, "t4.mp3", "t5.mp3", "t6.mp3"];
+var NUDGE_TEXT = "Me puedes contar hasta donde tú quieras, pero mientras más me cuentes, más te voy a poder ayudar.";
+
+/* 4 segundos después de una pregunta difícil, si aún no respondió: empujón cálido */
+function scheduleNudge() {
+  var s = step;
+  setTimeout(function () {
+    if (finished || !waitingInput || step !== s) return;
+    showTyping();
+    setTimeout(function () {
+      hideTyping();
+      var row = addBubble(PLAY_SVG + escapeHtml(NUDGE_TEXT), "in");
+      wirePlayButton(row, "t7.mp3");
+      setInputEnabled(true);
+      waitingInput = true;
+    }, typingDelay());
+  }, 4000);
+}
+
+function askQuestion(i) {
+  var slow = (i === 1); // "¿Qué te pesa ahorita?" se escribe lento, deliberado
+  brotherSay(QUESTIONS[i], function () {
+    if (i === 1 || i === 3) scheduleNudge(); // preguntas difíciles
+  }, QUESTION_AUDIO[i], slow);
+}
+
+/* Si pregunta "¿ayudar con qué?": misterio, sin avanzar el paso */
+var HELP_Q_RE = /(ayud\w*\s+(con\s+)?qu[eé])|(qu[eé][^?!.]*ayud\w*)|(c[oó]mo\s+[^?!.]*ayud\w*)/i;
+function answerHelpQuestion() {
+  waitingInput = false;
+  setInputEnabled(false);
+  showTyping();
+  setTimeout(function () {
+    hideTyping();
+    var row = addBubble(PLAY_SVG + escapeHtml("Eso ya lo verás."), "in");
+    wirePlayButton(row, "t8.mp3");
+    setInputEnabled(true);
+    waitingInput = true;
+  }, typingDelay());
+}
+
+async function saveAnswers() {
+  const res = await fetch(SUPABASE_URL + "/rest/v1/tata_onboarding", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json",
+      "Prefer": "return=minimal"
+    },
+    body: JSON.stringify({
+      nombre: answers.nombre,
+      que_pesa: answers.que_pesa,
+      que_quiere: answers.que_quiere,
+      que_voz: answers.que_voz
+    })
+  });
+  if (!res.ok) throw new Error("Supabase respondió " + res.status);
+}
+
+function finishConversation() {
+  showTyping();
+  saveAnswers().then(function () {
+    hideTyping();
+    const firstName = answers.nombre.split(" ")[0];
+    addBubble(escapeHtml("Gracias, " + firstName + ". Ya guardé tus respuestas. Tu historia viene en camino."), "in");
+    finished = true;
+    setInputEnabled(false);
+    inputEl.placeholder = "Conversación terminada";
+  }).catch(function () {
+    hideTyping();
+    const row = addBubble(
+      "Tuve un problema de conexión y no pude guardar tus respuestas. ¿Lo intentamos de nuevo?",
+      "in",
+      '<br><button class="retry-btn" id="retry-save">Reintentar</button>'
+    );
+    document.getElementById("retry-save").addEventListener("click", function () {
+      this.disabled = true;
+      finishConversation();
+    });
+    setInputEnabled(false);
+  });
+}
+
+function submitAnswer(text) {
+  if (finished || !waitingInput) return;
+  waitingInput = false;
+  setInputEnabled(false);
+  var key = answerKeys[step];
+  answers[key] = text;
+  step++;
+  if (step < QUESTIONS.length) {
+    if (step === 1) {
+      // Después del nombre: Tata lo saluda con SU VOZ, generada en vivo con su nombre.
+      var firstName = cleanFirstName(answers.nombre) || "mi amor";
+      var greeting = "Hola " + firstName + ", mi amor, mi cielo, cariño.";
+      setTimeout(function () {
+        showTyping(); // teclea mientras se genera el audio
+        tataTtsUrl(greeting).then(function (url) {
+          hideTyping();
+          sayGreetingSeq(greeting, url);
+        }).catch(function () {
+          // Si la voz viva falla, el saludo sale como texto y el flujo sigue igual.
+          hideTyping();
+          sayGreetingSeq(greeting, null);
+        });
+      }, 350);
+    } else {
+      setTimeout(function () { askQuestion(step); }, 350);
+    }
+  } else {
+    setTimeout(finishConversation, 350);
+  }
+}
+
+function onSend() {
+  if (finished || !waitingInput) return;
+  const text = inputEl.value.trim();
+  if (!text) return;
+  addBubble(escapeHtml(text), "out");
+  inputEl.value = "";
+  syncMicSend();
+  if (HELP_Q_RE.test(text)) { answerHelpQuestion(); return; }
+  submitAnswer(text);
+}
+
+/* ---------- Notas de voz del usuario ---------- */
+let mediaRecorder = null, audioChunks = [], recTimer = null, recSecs = 0, recStream = null;
+
+function fmtTime(s) { return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+
+function syncMicSend() {
+  var has = inputEl.value.trim().length > 0;
+  sendBtn.style.display = has ? "" : "none";
+  micBtn.style.display = has ? "none" : "";
+}
+
+async function startRecording() {
+  if (finished || !waitingInput) return;
+  var stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    addBubble("No pude acceder al micrófono. Revisa el permiso en tu navegador.", "in");
+    return;
+  }
+  recStream = stream;
+  audioChunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = function (e) { if (e.data.size) audioChunks.push(e.data); };
+  mediaRecorder.onstop = onRecordingStop;
+  mediaRecorder.start();
+  recSecs = 0;
+  recTime.textContent = "0:00";
+  inputEl.style.display = "none";
+  micBtn.style.display = "none";
+  sendBtn.style.display = "none";
+  recUi.classList.add("on");
+  recStop.style.display = "";
+  recTimer = setInterval(function () { recSecs++; recTime.textContent = fmtTime(recSecs); }, 1000);
+}
+
+function stopRecording() {
+  clearInterval(recTimer);
+  recUi.classList.remove("on");
+  recStop.style.display = "none";
+  inputEl.style.display = "";
+  syncMicSend();
+  if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+  if (recStream) { recStream.getTracks().forEach(function (t) { t.stop(); }); recStream = null; }
+}
+
+async function uploadAudio(blob) {
+  var id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + ".webm";
+  var res = await fetch(SUPABASE_URL + "/storage/v1/object/tata-audios/" + id, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "audio/webm"
+    },
+    body: blob
+  });
+  if (!res.ok) throw new Error("upload " + res.status);
+  return SUPABASE_URL + "/storage/v1/object/public/tata-audios/" + id;
+}
+
+function addVoiceBubble(url, from) {
+  var row = document.createElement("div");
+  row.className = "msg-row " + from;
+  var wrap = document.createElement("div");
+  wrap.className = "bubble";
+  var a = document.createElement("audio");
+  a.className = "voice-note";
+  a.controls = true;
+  a.src = url;
+  a.preload = "metadata";
+  wrap.appendChild(a);
+  var t = document.createElement("span");
+  t.className = "msg-time";
+  t.innerHTML = now() + (from === "out" ? '<span class="checks">✓✓</span>' : "");
+  wrap.appendChild(t);
+  row.appendChild(wrap);
+  messagesEl.appendChild(row);
+  scrollDown();
+  return row;
+}
+
+async function onRecordingStop() {
+  var blob = new Blob(audioChunks, { type: (mediaRecorder && mediaRecorder.mimeType) || "audio/webm" });
+  if (!blob.size) { waitingInput = true; setInputEnabled(true); return; }
+  waitingInput = false;
+  setInputEnabled(false);
+  var upRow = addBubble("Subiendo nota de voz…", "out");
+  try {
+    var url = await uploadAudio(blob);
+    upRow.remove();
+    addVoiceBubble(url, "out");
+    waitingInput = true;
+    submitAnswer("[nota de voz] " + url);
+  } catch (e) {
+    upRow.remove();
+    addBubble("No pude subir la nota de voz. Intenta de nuevo.", "in");
+    waitingInput = true;
+    setInputEnabled(true);
+  }
+}
+
+micBtn.addEventListener("click", startRecording);
+recStop.addEventListener("click", stopRecording);
+inputEl.addEventListener("input", syncMicSend);
+
+sendBtn.addEventListener("click", onSend);
+inputEl.addEventListener("keydown", function (e) {
+  if (e.key === "Enter") onSend();
+});
+
+startConversation();
+</script>
+</body>
+</html>
