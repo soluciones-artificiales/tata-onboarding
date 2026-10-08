@@ -131,30 +131,44 @@
 /* ============ Config ============ */
 var SUPABASE_URL = "https://sjsnnumwshvtxahpdszq.supabase.co";
 var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqc25udW13c2h2dHhhaHBkc3pxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNTE1MTgsImV4cCI6MjEwNjkyNzUxOH0.3PnzdavX4l2o8Q2Zj1jwwZtEDa3FiZnFGEJgNNREihc";
-var PASS_HASH = "731f060536cb9a826d1ab9112718dec83155827229c75e71a4290c729aff38f5"; // SHA-256 de la clave
 var PRICE_IN_MTOK = 1.25;   // USD por millón de tokens de entrada (precio público Meta)
 var PRICE_OUT_MTOK = 4.25;  // USD por millón de tokens de salida (precio público Meta)
+var ADMIN_SECRET = "";      // la clave que escribe el dueño; viaja como secret a tata-admin
 
-/* ============ Gate ============ */
-function hex(buf) {
-  return Array.prototype.map.call(new Uint8Array(buf), function (b) {
-    return ("0" + b.toString(16)).slice(-2);
-  }).join("");
+/* ============ Gate ============
+   La clave NO se verifica aquí: se manda a tata-admin, que la compara con
+   TATA_ADMIN_SECRET en el servidor. 403 → "Clave incorrecta." */
+async function adminPost(accion, extra) {
+  var body = { secret: ADMIN_SECRET, accion: accion };
+  if (extra) for (var k in extra) body[k] = extra[k];
+  var res = await fetch(SUPABASE_URL + "/functions/v1/tata-admin", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+  if (res.status === 403) { var e = new Error("forbidden"); e.code = 403; throw e; }
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
 }
 async function tryLogin() {
   var pw = document.getElementById("pw").value || "";
   var err = document.getElementById("gateErr");
+  err.textContent = "";
   try {
-    var h = hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw)));
-    if (h === PASS_HASH) {
-      document.getElementById("gate").style.display = "none";
-      document.getElementById("app").style.display = "block";
-      loadAll();
-    } else {
-      err.textContent = "Clave incorrecta.";
-    }
+    ADMIN_SECRET = pw;
+    var data = await adminPost("resumen");
+    document.getElementById("gate").style.display = "none";
+    document.getElementById("app").style.display = "block";
+    render(data.eventos || [], data.usage || [], data.memoria || []);
+    document.getElementById("updated").textContent = "Actualizado " + new Date().toLocaleString("es");
+    document.getElementById("warn").style.display = "none";
   } catch (e) {
-    err.textContent = "Tu navegador no soporta la verificación (necesita HTTPS).";
+    ADMIN_SECRET = "";
+    err.textContent = (e && e.code === 403) ? "Clave incorrecta." : "No se pudo entrar. Revisa tu conexión.";
   }
 }
 document.getElementById("go").addEventListener("click", tryLogin);
@@ -206,14 +220,6 @@ function last7() {
   }
   return out;
 }
-async function getJSON(path) {
-  var res = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
-    headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY }
-  });
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  return res.json();
-}
-
 /* ============ Carga y render ============ */
 var USERS = []; // [{device_id, nombre, parabolas[], tipos[], conversacion[], created_at, updated_at}]
 
@@ -221,21 +227,20 @@ async function loadAll() {
   document.getElementById("updated").textContent = "Cargando…";
   var warn = document.getElementById("warn");
   warn.style.display = "none";
-  var problems = [];
-  var eventos = [], usage = [], memoria = [];
-  try { eventos = await getJSON("tata_eventos?select=device_id,evento,detalle,created_at&order=created_at.desc&limit=5000"); }
-  catch (e) { problems.push("tata_eventos"); }
-  try { usage = await getJSON("tata_api_usage?select=device_id,funcion,modelo,prompt_tokens,completion_tokens,caracteres,created_at&order=created_at.desc&limit=5000"); }
-  catch (e) { problems.push("tata_api_usage"); }
-  try { memoria = await getJSON("tata_memoria?select=device_id,nombre,parabolas,tipos,conversacion,created_at,updated_at&order=updated_at.desc&limit=2000"); }
-  catch (e) { problems.push("tata_memoria"); }
-  // Nota: tata_onboarding no tiene lectura para anon (RLS); el embudo se deriva de eventos.
-  if (problemas.length) {
-    warn.style.display = "block";
-    warn.textContent = "No se pudieron leer: " + problemas.join(", ") + ". Revisa las policies en Supabase.";
+  try {
+    var data = await adminPost("resumen");
+    render(data.eventos || [], data.usage || [], data.memoria || []);
+    document.getElementById("updated").textContent = "Actualizado " + new Date().toLocaleString("es");
+  } catch (e) {
+    if (e && e.code === 403) {
+      warn.style.display = "block";
+      warn.textContent = "Clave incorrecta. Recarga la página e intenta de nuevo.";
+      ADMIN_SECRET = "";
+    } else {
+      warn.style.display = "block";
+      warn.textContent = "No se pudo cargar. Revisa tu conexión.";
+    }
   }
-  render(eventos, usage, memoria);
-  document.getElementById("updated").textContent = "Actualizado " + new Date().toLocaleString("es");
 }
 
 function render(eventos, usage, memoria) {

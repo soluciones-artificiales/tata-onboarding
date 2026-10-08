@@ -316,13 +316,12 @@ function syncMemoryToServer() {
       conversacion: mem.conversacion || [],
       updated_at: new Date().toISOString()
     };
-    fetchTimeout(SUPABASE_URL + "/rest/v1/tata_memoria?on_conflict=device_id", {
+    fetchTimeout(SUPABASE_URL + "/functions/v1/tata-save", {
       method: "POST",
       headers: {
         "apikey": SUPABASE_ANON_KEY,
         "Authorization": "Bearer " + SUPABASE_ANON_KEY,
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates"
+        "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
     }, 15000).catch(function () {});
@@ -334,13 +333,19 @@ var restoreAttempted = false;
 function restoreFromServer(done) {
   restoreAttempted = true;
   try {
-    fetchTimeout(SUPABASE_URL + "/rest/v1/tata_memoria?device_id=eq." + encodeURIComponent(getDeviceId()) + "&select=nombre,answers,parabolas,tipos,conversacion&limit=1", {
-      headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY }
+    fetchTimeout(SUPABASE_URL + "/functions/v1/tata-restore", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ device_id: getDeviceId() })
     }, 8000).then(function (res) {
       if (!res.ok) throw new Error("restore " + res.status);
       return res.json();
-    }).then(function (rows) {
-      var r = rows && rows[0];
+    }).then(function (data) {
+      var r = data && data.row;
       if (r) {
         try {
           var m = {};
@@ -363,13 +368,12 @@ function restoreFromServer(done) {
    jamás bloquea la UI ni rompe la experiencia si la red falla. */
 function logEvento(evento, detalle) {
   try {
-    fetch(SUPABASE_URL + "/rest/v1/tata_eventos", {
+    fetch(SUPABASE_URL + "/functions/v1/tata-event", {
       method: "POST",
       headers: {
         "apikey": SUPABASE_ANON_KEY,
         "Authorization": "Bearer " + SUPABASE_ANON_KEY,
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal"
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({ device_id: getDeviceId(), evento: evento, detalle: detalle || {} })
     }).catch(function () {});
@@ -649,7 +653,12 @@ function shareParabolaAudio(blobUrl, fileName, btn) {
       try { file = new File([blob], fileName, { type: blob.type || "audio/mpeg" }); } catch (e) {}
       if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
-          navigator.share({ files: [file], title: "Mi historia de Tata" }).then(
+          navigator.share({
+            files: [file],
+            title: "Mi historia de Tata",
+            text: "Escúchala en Tata: https://soytata.xyz",
+            url: "https://soytata.xyz"
+          }).then(
             function () { logEvento("compartir_audio", { via: "share" }); done(); },
             function () { downloadFallback(true); }
           );
