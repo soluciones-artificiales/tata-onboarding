@@ -719,20 +719,7 @@ var CIERRE_BETA = [
   "If you'd like, send me a message on WhatsApp and we'll begin. We're in beta, and much more is on the way.",
   "If you'd like, write to me on WhatsApp and we'll begin. We're in beta, but more is coming."
 ];
-/* Elegir el tipo de cuento: venezolana o de las de para siempre. Frases variables, y si ya contó una, ofrece la otra. */
-var ELIGE_TIPO_NEUTRO = [
-  "Would you like a story with Venezuelan flavor, or one of the timeless ones?",
-  "Shall I tell you a story with Venezuelan flavor, or one of those that last forever?",
-  "What are you in the mood for: a story with Venezuelan flavor, or one of the timeless ones?"
-];
-var ELIGE_TIPO_VEN = [
-  "I already told you one of the timeless ones \u2014 would you like a Venezuelan one?",
-  "Since I already told you a timeless one, are you in the mood for a Venezuelan story?"
-];
-var ELIGE_TIPO_SIEMPRE = [
-  "I already told you a Venezuelan one \u2014 would you like one of the timeless ones?",
-  "Since I already told you a Venezuelan one, shall I tell you one of the timeless ones?"
-];
+/* (English Tata tells timeless stories only: no style-choice phrases.) */
 var CIERRE_DESAHOGO = [
   "Or we can stay here so you can get things off your chest.",
   "Or we can stay here talking, so you can unburden yourself in peace."
@@ -740,10 +727,6 @@ var CIERRE_DESAHOGO = [
 var ESPERAME = [
   "OK, wait for me a moment, I'm preparing your little surprise.",
   "Give me a moment, sweetheart, I'm preparing your little surprise."
-];
-var OTRA_HISTORIA = [
-  "With pleasure, sweetheart. Wait for me a moment, I'm preparing it.",
-  "Of course, sweetheart. Give me a moment, I'm preparing it."
 ];
 var NOTA_CORTA = [
   "Sweetheart, that was very short. Don't you have more to tell me? Keep your finger pressed and tell me.",
@@ -767,21 +750,21 @@ function showClosingSequence(count) {
   var presentacion = PRESENTACIONES[Math.floor(Math.random() * PRESENTACIONES.length)];
   if (count >= 10) {
     brotherSaySeq([
-      { text: decirMijo(pick(TERCERA_HISTORIA)), audio: null }
+      { text: decirMijo(pick(TERCERA_HISTORIA)), audio: null, liveVoice: true }
     ], enableDesahogo);
     return;
   }
   if (count === 2) {
     brotherSaySeq([
-      { text: "There's another one for you, " + firstName + ". " + pick(["If you'd like one more, ask me, or we can stay here talking.", "If you're in the mood for one more, ask me, or we keep talking here."]), audio: null }
+      { text: "There's another one for you, " + firstName + ". " + pick(["If you'd like one more, ask me, or we can stay here talking.", "If you're in the mood for one more, ask me, or we keep talking here."]), audio: null, liveVoice: true }
     ], enableDesahogo);
     return;
   }
   brotherSaySeq([
-    { text: firstName + ", but everything has a solution \u2014 that's what I came to help you with. " + presentacion, audio: null },
-    { text: pick(CIERRE_CUENTOS), audio: null },
-    { text: pick(CIERRE_BETA), audio: null },
-    { text: pick(CIERRE_DESAHOGO), audio: null }
+    { text: firstName + ", but everything has a solution \u2014 that's what I came to help you with. " + presentacion, audio: null, liveVoice: true },
+    { text: pick(CIERRE_CUENTOS), audio: null, liveVoice: true },
+    { text: pick(CIERRE_BETA), audio: null, liveVoice: true },
+    { text: pick(CIERRE_DESAHOGO), audio: null, liveVoice: true }
   ], enableDesahogo);
 }
 
@@ -805,54 +788,9 @@ function getTipos() {
   return mem.tipos || [];
 }
 
-/* Ofrece elegir el tipo de cuento: venezolana o de las de para siempre.
-   Si ya contó una, ofrece la otra para que no se aburra.
+/* English Tata tells timeless stories only: no style choice is ever offered.
    eligeTipoExtra: true = historia extra, false = primera historia. */
 var eligeTipoExtra = true;
-function ofrecerTipoParabola(isExtra) {
-  eligeTipoExtra = (isExtra !== false);
-  var tipos = getTipos();
-  var last = tipos[tipos.length - 1];
-  var msg;
-  if (last === "venezolana") msg = pickFresh(ELIGE_TIPO_SIEMPRE, "tipo-siempre");
-  else if (last === "para_siempre") msg = pickFresh(ELIGE_TIPO_VEN, "tipo-ven");
-  else msg = pickFresh(ELIGE_TIPO_NEUTRO, "tipo-neutro");
-  // Estado listo ANTES del tecleo: los botones responden aunque toquen durante la animación.
-  extraState = "elige-tipo";
-  waitingInput = true;
-  setInputEnabled(true);
-  inputEl.placeholder = "Choose: Venezuelan or timeless";
-  showTyping();
-  setTimeout(function () {
-    hideTyping();
-    var row = addBubble(
-      escapeHtml(decirMijo(msg)) +
-      '<br><button class="retry-btn qr-btn qr-ven">Venezuelan style</button> ' +
-      '<button class="retry-btn qr-btn qr-siempre">A timeless one</button>',
-      "in"
-    );
-    // Cableado por FILA (no por id): las burbujas viejas nunca se borran del DOM
-    // y con ids duplicados el listener caía en el botón viejo, dejando el nuevo muerto.
-    var bVen = row.querySelector(".qr-ven");
-    var bSiempre = row.querySelector(".qr-siempre");
-    if (bVen) bVen.addEventListener("click", function () { safeQuickReply("Venezuelan style"); });
-    if (bSiempre) bSiempre.addEventListener("click", function () { safeQuickReply("A timeless one"); });
-    // showTyping() deshabilita el input: hay que re-habilitarlo o la persona
-    // queda sin poder escribir (dead-end).
-    setInputEnabled(true);
-    waitingInput = true;
-    inputEl.focus();
-    // Red de seguridad anti dead-end: si en 90s no eligió, el input sigue
-    // habilitado para que pueda ESCRIBIR su elección. Nunca sin salida.
-    setTimeout(function () {
-      if (extraState === "elige-tipo") {
-        waitingInput = true;
-        setInputEnabled(true);
-        try { inputEl.focus(); } catch (e) {}
-      }
-    }, 90000);
-  }, typingDelay());
-}
 
 function logConversacion(userText, tataText) {
   var mem = loadMemory();
@@ -880,32 +818,18 @@ function pedirOtraParabola(autoTipo, forcedTipo) {
     brotherSay(decirMijo(pick(TERCERA_HISTORIA)), function () {}, null);
     return;
   }
-  // The brain can ask for a specific type; "auto" alternates with the last one told.
-  var tipo = forcedTipo || null;
-  if (!tipo && autoTipo) {
-    // "Another story" = the version it did NOT tell: alternate without asking.
-    var tipos = getTipos();
-    var last = tipos[tipos.length - 1];
-    if (!last) { pedirOtraParabola(false); return; }
-    tipo = last === "venezolana" ? "para_siempre" : "venezolana";
-  }
-  if (tipo) {
-    var msg = tipo === "venezolana"
-      ? "All right, now I'll tell you one with Venezuelan flavor."
-      : "All right, now I'll tell you one of the timeless ones.";
-    waitingInput = false;
-    setInputEnabled(false);
-    eligeTipoExtra = true;
-    brotherSay(decirMijo(msg), function () {
-      extraState = null;
-      generateParabolaFlow(true, tipo);
-    }, null);
-    return;
-  }
+  // English Tata tells timeless stories only: no style choice is ever offered.
+  // An explicit "venezolana" (free-text request via the brain) is still honored.
+  var tipo = forcedTipo || "para_siempre";
+  var msg = tipo === "venezolana"
+    ? "All right, now I'll tell you one with Venezuelan flavor."
+    : "All right, now I'll tell you one of the timeless ones.";
   waitingInput = false;
   setInputEnabled(false);
-  brotherSay(decirMijo(pick(OTRA_HISTORIA)), function () {
-    ofrecerTipoParabola();
+  eligeTipoExtra = true;
+  brotherSay(decirMijo(msg), function () {
+    extraState = null;
+    generateParabolaFlow(true, tipo);
   }, null);
 }
 
@@ -994,8 +918,7 @@ function retellParabola(userText, forcedTipo) {
   }
   var targetTipo = forcedTipo
     || (/venezuelan/i.test(userText) ? "venezolana"
-    : /timeless|forever/i.test(userText) ? "para_siempre"
-    : (function () { var ts = getTipos(); var l = ts[ts.length - 1]; return l === "venezolana" ? "para_siempre" : "venezolana"; })());
+    : "para_siempre"); // English Tata tells timeless stories only (explicit Venezuelan requests honored).
   var last = lista[lista.length - 1];
   var tipoLabel = targetTipo === "venezolana" ? "with Venezuelan flavor" : "one of the timeless ones";
   var intro = "All right, " + firstName + ", your same story, now " + tipoLabel + ".";
@@ -1066,26 +989,7 @@ var PENSANDO_LARGA = [
   "Wait there a moment, I'm figuring out what to tell you that will truly serve you."
 ];
 
-/* El usuario elige el tipo de cuento: venezolana o de las de para siempre. */
-function handleEligeTipo(text) {
-  // Si pide la misma historia en otro estilo, se hace eso (más inteligente
-  // que tratarlo como una simple elección de tipo).
-  if (typeof RETELL_RE !== "undefined" && RETELL_RE.test(text)) { extraState = null; retellParabola(text); return; }
-  var tipo = null;
-  if (/venezuelan/i.test(text)) tipo = "venezolana";
-  else if (/timeless|forever|classic/i.test(text)) tipo = "para_siempre";
-  if (!tipo) {
-    // Si no fue claro, lo contrario de la última para no repetir.
-    var ts = getTipos();
-    var l = ts[ts.length - 1];
-    tipo = l === "venezolana" ? "para_siempre" : "venezolana";
-  }
-  extraState = null;
-  waitingInput = false;
-  setInputEnabled(false);
-  generateParabolaFlow(eligeTipoExtra, tipo);
-}
-
+/* (handleEligeTipo removed: English Tata offers no style choice.) */
 /* Si la persona da su número de WhatsApp, Tata lo anota y le confirma con variación. */
 var WHATSAPP_RE = /(\+?\d[\d\s.\-()]{7,}\d)/;
 var WHATSAPP_ACK = [
@@ -1145,12 +1049,12 @@ async function tataChat(message, situacion) {
   return { action: action, texto: String(data.texto || "").slice(0, 2000), tipo: tipo };
 }
 
-/* Resolve the type the brain asks for: "auto" alternates with the last one told. */
+/* Resolve the type the brain asks for: English Tata tells timeless stories only.
+   "auto" (and anything unrecognized) -> "para_siempre". An explicit
+   "venezolana" from free text is still honored. */
 function resolveBrainTipo(tipo) {
-  if (tipo === "venezolana" || tipo === "para_siempre") return tipo;
-  var ts = getTipos();
-  var l = ts[ts.length - 1];
-  return l === "venezolana" ? "para_siempre" : "venezolana";
+  if (tipo === "venezolana") return tipo;
+  return "para_siempre";
 }
 
 function handleBrainAction(userText, brain) {
@@ -1281,11 +1185,14 @@ function afterDesahogo() {
       setTimeout(function () {
         try {
         hideTyping();
+        var offerText = decirMijo(pick(OFRECE_HISTORIA));
         var row = addBubble(
-          escapeHtml(decirMijo(pick(OFRECE_HISTORIA))) +
+          escapeHtml(offerText) +
+          '<br><button class="retry-btn live-voice-btn"><span>Listen</span></button>' +
           '<br><button class="retry-btn qr-btn qr-si-otra">Yes</button> ' +
           '<button class="retry-btn qr-btn qr-otra">Tell me another</button>',
           "in");
+        wireLiveVoiceButton(row, offerText);
         // Cableado por fila: con ids duplicados (la oferta sale tras cada historia)
         // el listener caía en botones viejos ya deshabilitados.
         var bSiOtra = row.querySelector(".qr-si-otra");
@@ -1511,7 +1418,9 @@ function proceedToParable(withThanks) {
   brotherSay(msg, function () {
     setInputEnabled(false);
     waitingInput = false;
-    ofrecerTipoParabola(false);
+    // English Tata: no style choice — straight to a timeless parable.
+    eligeTipoExtra = false;
+    generateParabolaFlow(false, "para_siempre");
   }, null);
 }
 
@@ -1538,7 +1447,8 @@ function handleExtraState(text) {
     generateParabolaFlow(true, "para_siempre");
   } else if (extraState === "ofrece-historia" && YES_SHORT_RE.test(text)) {
     extraState = null;
-    pedirOtraParabola(false);
+    // English Tata: "yes" to another story -> straight to timeless, no choice UI.
+    pedirOtraParabola(true, "para_siempre");
   } else if (extraState === "ofrece-historia" && NO_RE.test(text)) {
     extraState = null;
     brotherSay(decirMijo("That's all right, sweetheart. I'm still here for whatever you need."), function () {
@@ -1550,8 +1460,6 @@ function handleExtraState(text) {
     // Ambiguous answer: the brain understands it with context (it knows an
     // offer is pending). If it just chats, the offer still stands.
     handleDesahogo(text, "ofrece-historia");
-  } else if (extraState === "elige-tipo") {
-    handleEligeTipo(text);
   } else {
     answers.que_extra = ((answers.que_extra ? answers.que_extra + "\n" : "") + text).slice(0, 8000);
     saveMemory({ que_extra: answers.que_extra });
@@ -1559,11 +1467,11 @@ function handleExtraState(text) {
   }
 }
 
-function sayGreetingSeq(greeting, greetingAudioUrl) {
+function sayGreetingSeq(greeting, greetingAudioUrl, intro1, intro1AudioUrl, intro2, intro2AudioUrl) {
   brotherSaySeq([
     { text: greeting, audio: greetingAudioUrl },
-    { text: "I'm going to ask you questions that may be a little uncomfortable to answer.", audio: null },
-    { text: "But if you trust me, I promise it will be worth it.", audio: null }
+    { text: intro1 || "I'm going to ask you questions that may be a little uncomfortable to answer.", audio: intro1AudioUrl },
+    { text: intro2 || "But if you trust me, I promise it will be worth it.", audio: intro2AudioUrl }
   ], function () {
     addPrivacyChip();
     setTimeout(function () { askQuestion(step); }, 700);
@@ -1579,8 +1487,12 @@ function brotherSay(text, then, audioSrc, slow) {
   setTimeout(function () {
     try {
       hideTyping();
-      var row = addBubble((audioSrc ? PLAY_SVG : "") + escapeHtml(text), "in");
-      if (audioSrc) wirePlayButton(row, audioSrc);
+      // audioSrc === true: botón "Listen" que genera la voz al toque (sin latencia previa).
+      var liveBtn = audioSrc === true
+        ? '<br><button class="retry-btn live-voice-btn"><span>Listen</span></button>' : "";
+      var row = addBubble((audioSrc && audioSrc !== true ? PLAY_SVG : "") + escapeHtml(text) + liveBtn, "in");
+      if (audioSrc === true) wireLiveVoiceButton(row, text);
+      else if (audioSrc) wirePlayButton(row, audioSrc);
       setInputEnabled(true);
       waitingInput = true;
       if (then) then();
@@ -1663,7 +1575,9 @@ function startConversation() {
     setInputEnabled(false);
     inputEl.placeholder = "Conversation over";
     try { addBubble(escapeHtml("Hello " + firstName + ". Let's finish your story."), "in"); } catch (e) {}
-    ofrecerTipoParabola(false);
+    // English Tata: no style choice — straight to a timeless parable.
+    eligeTipoExtra = false;
+    generateParabolaFlow(false, "para_siempre");
   } else if (mem.nombre) {
     // La persona ya estuvo aquí: la saluda por su nombre y sigue con las preguntas.
     answers.nombre = mem.nombre;
@@ -1703,8 +1617,11 @@ function brotherSaySeq(items, then) {
       if (done) return;
       try {
         hideTyping();
-        var row = addBubble((items[i].audio ? PLAY_SVG : "") + escapeHtml(items[i].text), "in");
+        var lvBtn = items[i].liveVoice
+          ? '<br><button class="retry-btn live-voice-btn"><span>Listen</span></button>' : "";
+        var row = addBubble((items[i].audio ? PLAY_SVG : "") + escapeHtml(items[i].text) + lvBtn, "in");
         if (items[i].audio) wirePlayButton(row, items[i].audio);
+        if (items[i].liveVoice) wireLiveVoiceButton(row, items[i].text);
       } catch (e) {
         finish(); // un paso roto no tranca la conversación
         return;
@@ -1715,7 +1632,7 @@ function brotherSaySeq(items, then) {
   try { next(0); } catch (e) { finish(); }
 }
 
-var QUESTION_AUDIO = [null, null, null, null];
+/* (QUESTION_AUDIO removed: questions use on-demand Listen buttons now.) */
 /* Empujón cálido si no responde a una pregunta difícil: varía siempre, nunca la misma frase. */
 var NUDGES = [
   "You can tell me as much as you want, but the more you tell me, the more I'll be able to help you.",
@@ -1754,7 +1671,7 @@ function askQuestion(i) {
   var slow = (i === 1); // "¿Qué te pesa ahorita?" se escribe lento, deliberado
   brotherSay(QUESTIONS[i], function () {
     if (i === 1 || i === 3) scheduleNudge(); // preguntas difíciles
-  }, QUESTION_AUDIO[i], slow);
+  }, true, slow); // true = botón "Listen" con voz generada al toque, como en ES
 }
 
 /* Si pregunta "¿ayudar con qué?": misterio, sin avanzar el paso */
@@ -1766,7 +1683,12 @@ function answerHelpQuestion() {
   setTimeout(function () {
     try {
     hideTyping();
-    var row = addBubble(escapeHtml("You'll see soon enough."), "in");
+    var helpText = "You'll see soon enough.";
+    var row = addBubble(
+      escapeHtml(helpText) +
+      '<br><button class="retry-btn live-voice-btn"><span>Listen</span></button>',
+      "in");
+    wireLiveVoiceButton(row, helpText);
     setInputEnabled(true);
     waitingInput = true;
     } catch (e) {
@@ -1905,15 +1827,15 @@ function submitAnswer(text) {
       saveMemory({ nombre: answers.nombre });
       var firstName = cleanFirstName(answers.nombre) || "sweetheart";
       var greeting = "Hello " + firstName + ", " + endear() + ".";
+      var intro1 = "I'm going to ask you questions that may be a little uncomfortable to answer.";
+      var intro2 = "But if you trust me, I promise it will be worth it.";
       setTimeout(function () {
         showTyping(); // teclea mientras se genera el audio
-        tataTtsUrl(greeting).then(function (url) {
+        // Las 3 líneas con voz lista en paralelo: cada burbuja trae su play, como en ES.
+        function quiet(p) { return p.catch(function () { return null; }); }
+        Promise.all([quiet(tataTtsUrl(greeting)), quiet(tataTtsUrl(intro1)), quiet(tataTtsUrl(intro2))]).then(function (urls) {
           hideTyping();
-          sayGreetingSeq(greeting, url);
-        }).catch(function () {
-          // Si la voz viva falla, el saludo sale como texto y el flujo sigue igual.
-          hideTyping();
-          sayGreetingSeq(greeting, null);
+          sayGreetingSeq(greeting, urls[0], intro1, urls[1], intro2, urls[2]);
         });
       }, 350);
     } else {
