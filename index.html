@@ -513,8 +513,13 @@ function tratoMijo() {
   // Sin adivinar género por el nombre: siempre cariño neutral.
   return pick(["mi amor", "mi cielo", "cariño"]);
 }
-/* Reemplaza "mijo" por el trato correcto según el nombre. */
-function decirMijo(s) { return String(s).replace(/mijo/g, tratoMijo()); }
+/* Reemplaza "mijo" por el trato correcto. Insensible a mayúsculas ("Mijo" al inicio). */
+function decirMijo(s) {
+  return String(s).replace(/mijo/gi, function (m) {
+    var t = tratoMijo();
+    return m.charAt(0) === m.charAt(0).toUpperCase() ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+  });
+}
 var ENDEARMENTS_BASE = ["mi amor", "mi cielo", "cariño"];
 function endear() {
   return pick(ENDEARMENTS_BASE.slice());
@@ -630,6 +635,11 @@ function ofrecerTipoParabola(isExtra) {
   if (last === "venezolana") msg = pickFresh(ELIGE_TIPO_SIEMPRE, "tipo-siempre");
   else if (last === "para_siempre") msg = pickFresh(ELIGE_TIPO_VEN, "tipo-ven");
   else msg = pickFresh(ELIGE_TIPO_NEUTRO, "tipo-neutro");
+  // Estado listo ANTES del tecleo: los botones responden aunque toquen durante la animación.
+  extraState = "elige-tipo";
+  waitingInput = true;
+  setInputEnabled(true);
+  inputEl.placeholder = "Elige: venezolana o de siempre";
   showTyping();
   setTimeout(function () {
     hideTyping();
@@ -641,10 +651,6 @@ function ofrecerTipoParabola(isExtra) {
     );
     document.getElementById("qr-ven").addEventListener("click", function () { quickReply("venezolana"); });
     document.getElementById("qr-siempre").addEventListener("click", function () { quickReply("de esas de siempre"); });
-    extraState = "elige-tipo";
-    waitingInput = true;
-    setInputEnabled(true);
-    inputEl.placeholder = "Elige: venezolana o de siempre";
     inputEl.focus();
   }, typingDelay());
 }
@@ -658,12 +664,30 @@ function logConversacion(userText, tataText) {
 
 var OTRA_RE = /otr[ao]s?\s+(par[áa]bolas?|historias?|cuentos?)|cu[ée]ntame(\s+(otra|una))?|quiero\s+(otra|una\s+(historia|par[áa]bola|cuento))|otra\s+m[áa]s|una\s+(historia|par[áa]bola|cuento|de las de siempre)/i;
 
-function pedirOtraParabola() {
+function pedirOtraParabola(autoTipo) {
   var lista = getParabolas();
   if (lista.length >= 10) {
     waitingInput = false;
     setInputEnabled(false);
     brotherSay(decirMijo(pick(TERCERA_HISTORIA)), function () {}, null);
+    return;
+  }
+  if (autoTipo) {
+    // "Otra historia" = la versión que NO le contó: alterna el tipo sin preguntar.
+    var tipos = getTipos();
+    var last = tipos[tipos.length - 1];
+    if (!last) { pedirOtraParabola(false); return; }
+    var tipo = last === "venezolana" ? "para_siempre" : "venezolana";
+    var msg = last === "venezolana"
+      ? "Dale, ahora te cuento una de esas de siempre."
+      : "Dale, ahora te cuento una a lo venezolano.";
+    waitingInput = false;
+    setInputEnabled(false);
+    eligeTipoExtra = true;
+    brotherSay(decirMijo(msg), function () {
+      extraState = null;
+      generateParabolaFlow(true, tipo);
+    }, null);
     return;
   }
   waitingInput = false;
@@ -727,7 +751,7 @@ function saveWhatsappBestEffort(tel) {
 }
 
 function handleDesahogo(text) {
-  if (OTRA_RE.test(text)) { pedirOtraParabola(); return; }
+  if (OTRA_RE.test(text)) { pedirOtraParabola(true); return; }
   var telMatch = String(text).match(WHATSAPP_RE);
   if (telMatch) {
     var tel = telMatch[1].replace(/[^\d+]/g, "");
@@ -770,12 +794,21 @@ function handleDesahogo(text) {
     if (n >= 2 && lista.length < 10 && !mem2.offeredExtra) {
       saveMemory({ desahogoCount: 0, offeredExtra: true });
       setTimeout(function () {
-        brotherSay(decirMijo(pick(OFRECE_HISTORIA)), function () {
+        showTyping();
+        setTimeout(function () {
+          hideTyping();
+          var row = addBubble(
+            escapeHtml(decirMijo(pick(OFRECE_HISTORIA))) +
+            '<br><button class="retry-btn qr-btn" id="qr-si-otra">Sí</button> ' +
+            '<button class="retry-btn qr-btn" id="qr-otra">Cuéntame otra</button>',
+            "in");
+          document.getElementById("qr-si-otra").addEventListener("click", function () { quickReply("sí"); });
+          document.getElementById("qr-otra").addEventListener("click", function () { quickReply("cuéntame otra historia"); });
           extraState = "ofrece-historia";
           waitingInput = true;
           setInputEnabled(true);
           inputEl.focus();
-        }, null);
+        }, typingDelay());
       }, 1200);
     } else {
       saveMemory({ desahogoCount: n });
@@ -829,6 +862,7 @@ function deliverParabola(p, onReady, statusRow) {
     onReady(urls);
   }).catch(function () {
     hideTyping();
+    parabolaGen = null;
     if (statusRow) statusRow.remove();
     var row = addBubble(
       "Tuve un problema preparando mi voz para tu historia. ¿Lo intentamos de nuevo?",
@@ -842,10 +876,34 @@ function deliverParabola(p, onReady, statusRow) {
   });
 }
 
+/* Si iOS congela la pestaña en segundo plano, la promesa de la historia puede no
+   resolverse nunca: al volver, si sigue pendiente, se ofrece reintentar. */
+var parabolaGen = null; // { id, since, isExtra, tipo, statusRow }
+var parabolaGenSeq = 0;
+document.addEventListener("visibilitychange", function () {
+  if (document.hidden || !parabolaGen) return;
+  if (Date.now() - parabolaGen.since < 45000) return;
+  var pp = parabolaGen;
+  parabolaGen = null; // la promesa vieja queda huérfana y se ignora al resolver
+  if (pp.statusRow) pp.statusRow.remove();
+  setInputEnabled(true);
+  waitingInput = true;
+  var row = addBubble(
+    "Se me quedó pegado pensando tu historia. ¿Lo intentamos de nuevo?",
+    "in",
+    '<br><button class="retry-btn" id="retry-stuck">Reintentar</button>'
+  );
+  document.getElementById("retry-stuck").addEventListener("click", function () {
+    row.remove();
+    generateParabolaFlow(pp.isExtra, pp.tipo);
+  });
+});
+
 /* Un solo disparo por onboarding: genera, guarda en memoria y la muestra */
 function generateParabolaFlow(isExtra, tipo) {
   setInputEnabled(false);
   waitingInput = false;
+  var genId = ++parabolaGenSeq;
   var payload = buildParabolaPayload(isExtra, tipo);
   // Si contó bastante, la historia sale larga: se le avisa (con variación, nunca igual).
   var cuantoConto = ((answers.que_pesa || "") + (answers.que_quiere || "") + (answers.que_voz || "") + (answers.que_extra || "")).length;
@@ -853,8 +911,11 @@ function generateParabolaFlow(isExtra, tipo) {
     ? pickFresh(PENSANDO_LARGA, "pensando")
     : "Estoy escribiendo tu historia solo para ti, dame un momentico...";
   var statusRow = addBubble('<span class="status-text">' + escapeHtml(statusText) + "</span>", "in");
+  parabolaGen = { id: genId, since: Date.now(), isExtra: isExtra, tipo: tipo, statusRow: statusRow };
   tataParabola(payload).then(function (p) {
+    if (!parabolaGen || parabolaGen.id !== genId) return; // reintentado desde otro lado
     deliverParabola(p, function (urls) {
+      if (parabolaGen && parabolaGen.id === genId) parabolaGen = null;
       var lista = getParabolas();
       lista.push(p);
       lista = lista.slice(-10);
@@ -866,6 +927,8 @@ function generateParabolaFlow(isExtra, tipo) {
       setTimeout(function () { showClosingSequence(lista.length); }, 1200);
     }, statusRow);
   }).catch(function () {
+    if (!parabolaGen || parabolaGen.id !== genId) return;
+    parabolaGen = null;
     statusRow.remove();
     var row = addBubble(
       "Tuve un problema escribiendo tu historia. ¿Lo intentamos de nuevo?",
@@ -928,9 +991,22 @@ function handleExtraState(text) {
   } else if (extraState === "pregunta-extra" && YES_SHORT_RE.test(text)) {
     extraState = "pregunta-extra2";
     brotherSay("Cuéntame, te escucho.", function () {}, null);
+  } else if (extraState === "ofrece-historia" && OTRA_RE.test(text)) {
+    // "Cuéntame otra": va directo a la versión que NO le contó (alterna el tipo).
+    extraState = null;
+    pedirOtraParabola(true);
+  } else if (extraState === "ofrece-historia" && /venezolan/i.test(text)) {
+    // "Sí, venezolana": va directo sin preguntar de nuevo.
+    extraState = null;
+    eligeTipoExtra = true;
+    generateParabolaFlow(true, "venezolana");
+  } else if (extraState === "ofrece-historia" && /siempre/i.test(text)) {
+    extraState = null;
+    eligeTipoExtra = true;
+    generateParabolaFlow(true, "para_siempre");
   } else if (extraState === "ofrece-historia" && YES_SHORT_RE.test(text)) {
     extraState = null;
-    pedirOtraParabola();
+    pedirOtraParabola(false);
   } else if (extraState === "ofrece-historia" && NO_RE.test(text)) {
     extraState = null;
     brotherSay(decirMijo("Está bien, mijo. Aquí sigo para lo que necesites."), function () {
