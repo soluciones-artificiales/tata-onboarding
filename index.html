@@ -274,10 +274,88 @@ function saveMemory(patch) {
     try { localStorage.setItem(MEM_KEY, json); } catch (e) {}
     try { sessionStorage.setItem(MEM_KEY, json); } catch (e) {}
   } catch (e) { /* almacenamiento no disponible */ }
+  // Servidor en segundo plano (debounce): si la red falla, lo local ya quedó guardado.
+  scheduleServerSync();
 }
 function clearMemory() {
   try { localStorage.removeItem(MEM_KEY); } catch (e) {}
   try { sessionStorage.removeItem(MEM_KEY); } catch (e) {}
+}
+
+/* ---------- Memoria en servidor: la conversación sobrevive aunque el navegador borre sus datos ----------
+   El device_id es anónimo (no es el número de teléfono, no es login). Todo es best-effort:
+   si la red falla, la memoria local sigue intacta y la experiencia no se frena. */
+var DEVICE_KEY = "tata-device-v1";
+function getDeviceId() {
+  var fb = "dev-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e9).toString(36);
+  try {
+    var id = localStorage.getItem(DEVICE_KEY);
+    if (id) return id;
+    id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : fb;
+    try { localStorage.setItem(DEVICE_KEY, id); } catch (e) {}
+    return id;
+  } catch (e) { return fb; }
+}
+/* Sube la memoria al servidor. Se llama con debounce desde saveMemory, nunca bloquea la UI. */
+var _syncTimer = null;
+function scheduleServerSync() {
+  try {
+    if (_syncTimer) clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(function () { _syncTimer = null; syncMemoryToServer(); }, 2000);
+  } catch (e) {}
+}
+function syncMemoryToServer() {
+  try {
+    var mem = loadMemory();
+    var payload = {
+      device_id: getDeviceId(),
+      nombre: mem.nombre || null,
+      answers: mem.answers || {},
+      parabolas: mem.parabolas || [],
+      tipos: mem.tipos || [],
+      conversacion: mem.conversacion || [],
+      updated_at: new Date().toISOString()
+    };
+    fetchTimeout(SUPABASE_URL + "/rest/v1/tata_memoria?on_conflict=device_id", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates"
+      },
+      body: JSON.stringify(payload)
+    }, 15000).catch(function () {});
+  } catch (e) { /* best-effort: lo local ya quedó guardado */ }
+}
+/* Al arrancar: si el navegador no tiene memoria local, intenta restaurarla del servidor.
+   done() se llama siempre (haya o no fila), con timeout de 8s. */
+var restoreAttempted = false;
+function restoreFromServer(done) {
+  restoreAttempted = true;
+  try {
+    fetchTimeout(SUPABASE_URL + "/rest/v1/tata_memoria?device_id=eq." + encodeURIComponent(getDeviceId()) + "&select=nombre,answers,parabolas,tipos,conversacion&limit=1", {
+      headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY }
+    }, 8000).then(function (res) {
+      if (!res.ok) throw new Error("restore " + res.status);
+      return res.json();
+    }).then(function (rows) {
+      var r = rows && rows[0];
+      if (r) {
+        try {
+          var m = {};
+          if (r.nombre) m.nombre = r.nombre;
+          if (r.answers) m.answers = r.answers;
+          if (r.parabolas) m.parabolas = r.parabolas;
+          if (r.tipos) m.tipos = r.tipos;
+          if (r.conversacion) m.conversacion = r.conversacion;
+          var json = JSON.stringify(m);
+          try { localStorage.setItem(MEM_KEY, json); } catch (e) {}
+          try { sessionStorage.setItem(MEM_KEY, json); } catch (e) {}
+        } catch (e) {}
+      }
+    }).catch(function () {}).then(function () { done(); });
+  } catch (e) { done(); }
 }
 
 let step = 0;            // índice de la próxima pregunta por hacer
@@ -424,6 +502,30 @@ async function tataParabola(a) {
   throw lastErr;
 }
 
+/* Re-contar la misma parábola en otro estilo: modo retell de tata-parabola. */
+async function tataRetellParabola(nombre, parabolaText, tipo) {
+  var lastErr = new Error("retell falló");
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-parabola", {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ mode: "retell", nombre: nombre, parabola: parabolaText, tipo: tipo || "" })
+      }, 90000);
+      if (!res.ok) throw new Error("retell " + res.status);
+      var data = await res.json();
+      var p = data && data.parabola ? String(data.parabola).trim() : "";
+      if (!p) throw new Error("retell vacío");
+      return p;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
 /* Fragmentos cortos para que la voz no se degrade (anti-drift): párrafos o bloques de ~2 oraciones */
 function splitParabola(text) {
   var parts = String(text).split(/\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
@@ -484,14 +586,62 @@ function wireLiveVoiceButton(row, text) {
 /* La historia sale como nota de voz nativa: un solo audio, listo antes de aparecer. */
 function showParabolaBubble(parabola, audioUrl) {
   var playerHtml = audioUrl
-    ? '<br><audio class="voice-note" controls preload="auto" src="' + audioUrl + '"></audio>'
+    ? '<br><audio class="voice-note" controls preload="auto" src="' + audioUrl + '"></audio><br><button class="retry-btn share-audio-btn"><span>Compartir</span></button>'
     : '<br><button class="retry-btn" id="play-parabola"><span>Escuchar mi historia</span></button>';
   var row = addBubble(
     escapeHtml("Esta historia es para ti.") + "<br><br>" + escapeHtml(parabola),
     "in",
     playerHtml
   );
+  if (audioUrl) wireShareButton(row, audioUrl);
   return row;
+}
+
+/* Compartir/guardar el audio de una historia: si el navegador soporta
+   compartir archivos (Web Share Level 2), abre el sheet nativo para mandarla
+   por WhatsApp, guardarla en archivos, etc. Si no, descarga directa; en iOS
+   el audio se abre y se guarda desde el share sheet. Nunca rompe la UI. */
+function shareParabolaAudio(blobUrl, fileName, btn) {
+  fileName = fileName || "historia-de-tata.mp3";
+  var label = btn ? (btn.querySelector("span") || btn) : null;
+  var orig = label ? label.textContent : null;
+  function done() {
+    try {
+      if (label) label.textContent = orig;
+      if (btn) btn.disabled = false;
+    } catch (e) {}
+  }
+  function downloadFallback() {
+    try {
+      var a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {}
+    done();
+  }
+  try {
+    if (label) label.textContent = "Preparando…";
+    if (btn) btn.disabled = true;
+    fetch(blobUrl).then(function (res) { return res.blob(); }).then(function (blob) {
+      var file = null;
+      try { file = new File([blob], fileName, { type: blob.type || "audio/mpeg" }); } catch (e) {}
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          navigator.share({ files: [file], title: "Mi historia de Tata" }).then(done, function () { downloadFallback(); });
+        } catch (e) { downloadFallback(); }
+      } else {
+        downloadFallback();
+      }
+    }).catch(function () { downloadFallback(); });
+  } catch (e) { downloadFallback(); }
+}
+
+function wireShareButton(row, blobUrl) {
+  var btn = row.querySelector(".share-audio-btn");
+  if (btn) btn.addEventListener("click", function () { shareParabolaAudio(blobUrl, "historia-de-tata.mp3", btn); });
 }
 
 let desahogoMode = false;
@@ -645,13 +795,30 @@ function ofrecerTipoParabola(isExtra) {
     hideTyping();
     var row = addBubble(
       escapeHtml(decirMijo(msg)) +
-      '<br><button class="retry-btn qr-btn" id="qr-ven">A lo venezolano</button> ' +
-      '<button class="retry-btn qr-btn" id="qr-siempre">De esas de siempre</button>',
+      '<br><button class="retry-btn qr-btn qr-ven">A lo venezolano</button> ' +
+      '<button class="retry-btn qr-btn qr-siempre">De esas de siempre</button>',
       "in"
     );
-    document.getElementById("qr-ven").addEventListener("click", function () { quickReply("venezolana"); });
-    document.getElementById("qr-siempre").addEventListener("click", function () { quickReply("de esas de siempre"); });
+    // Cableado por FILA (no por id): las burbujas viejas nunca se borran del DOM
+    // y con ids duplicados el listener caía en el botón viejo, dejando el nuevo muerto.
+    var bVen = row.querySelector(".qr-ven");
+    var bSiempre = row.querySelector(".qr-siempre");
+    if (bVen) bVen.addEventListener("click", function () { safeQuickReply("venezolana"); });
+    if (bSiempre) bSiempre.addEventListener("click", function () { safeQuickReply("de esas de siempre"); });
+    // showTyping() deshabilita el input: hay que re-habilitarlo o la persona
+    // queda sin poder escribir (dead-end).
+    setInputEnabled(true);
+    waitingInput = true;
     inputEl.focus();
+    // Red de seguridad anti dead-end: si en 90s no eligió, el input sigue
+    // habilitado para que pueda ESCRIBIR su elección. Nunca sin salida.
+    setTimeout(function () {
+      if (extraState === "elige-tipo") {
+        waitingInput = true;
+        setInputEnabled(true);
+        try { inputEl.focus(); } catch (e) {}
+      }
+    }, 90000);
   }, typingDelay());
 }
 
@@ -663,6 +830,15 @@ function logConversacion(userText, tataText) {
 }
 
 var OTRA_RE = /otr[ao]s?\s+(par[áa]bolas?|historias?|cuentos?)|cu[ée]ntame(\s+(otra|una))?|quiero\s+(otra|una\s+(historia|par[áa]bola|cuento))|otra\s+m[áa]s|una\s+(historia|par[áa]bola|cuento|de las de siempre)/i;
+
+/* "Repite mi historia": re-escucha la última parábola contada. Va ANTES que OTRA_RE:
+   repetir no genera nada nuevo y no consume el límite de historias. */
+var REPITE_RE = /(repite|repite ?me|rep[ií]teme|pon ?me|escuchar).*(historia|par[áa]bola|cuento)|la (anterior|última.*historia)/i;
+
+/* "La misma historia pero en venezolano": re-cuenta la ÚLTIMA parábola en el
+   estilo pedido. Va ANTES que REPITE_RE y OTRA_RE: si Tata promete, cumple;
+   no se va por el guion. */
+var RETELL_RE = /(misma|mismo)\s+(historia|par[áa]bola|cuento)|(historia|par[áa]bola|cuento)[^.?!]{0,40}\b(misma|mismo)\b|cu[ée]ntame\s+la\s+misma|la\s+misma\s+pero/i;
 
 function pedirOtraParabola(autoTipo) {
   var lista = getParabolas();
@@ -697,6 +873,140 @@ function pedirOtraParabola(autoTipo) {
   }, null);
 }
 
+/* Re-escucha la ÚLTIMA parábola contada, con su voz lista (mismo patrón del eco:
+   la burbuja sale solo cuando el audio está preparado). No genera nada nuevo,
+   no consume el límite de 10 historias. */
+function repetirUltimaHistoria(userText) {
+  var mem = loadMemory();
+  var lista = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
+  var firstName = cleanFirstName(mem.nombre) || "mi amor";
+  waitingInput = false;
+  setInputEnabled(false);
+  if (!lista.length) {
+    var none = "Todavía no te he contado ninguna historia, " + firstName + ". ¿Empezamos?";
+    logConversacion(userText, none);
+    addBubble(escapeHtml(none), "in");
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    return;
+  }
+  showTyping();
+  var last = lista[lista.length - 1];
+  var intro = "Esta fue tu última historia, " + firstName + ".";
+  prepareParabolaVoice(last).then(function (urls) {
+    hideTyping();
+    logConversacion(userText, intro);
+    var row = addBubble(
+      escapeHtml(intro) + "<br><br>" + escapeHtml(last),
+      "in",
+      '<br><audio class="voice-note" controls preload="auto" src="' + urls[0] + '"></audio><br><button class="retry-btn share-audio-btn"><span>Compartir</span></button>'
+    );
+    wireShareButton(row, urls[0]);
+    afterDesahogo();
+  }).catch(function () {
+    // La voz no se pudo preparar: el texto sale con botón Escuchar que genera
+    // la voz y la reproduce DENTRO del gesto del tap (iOS-safe), igual que el eco.
+    hideTyping();
+    logConversacion(userText, intro);
+    var row = addBubble(
+      escapeHtml(intro) + "<br><br>" + escapeHtml(last),
+      "in",
+      '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>'
+    );
+    var btn = row.querySelector(".live-voice-btn");
+    if (btn) btn.addEventListener("click", function () {
+      btn.disabled = true;
+      var label = btn.querySelector("span") || btn;
+      label.textContent = "Preparando mi voz…";
+      var a = new Audio();
+      a.play().catch(function () {}); // dentro del gesto: iOS desbloquea el elemento
+      prepareParabolaVoice(last).then(function (u2) {
+        a.src = u2[0];
+        a.play().catch(function () {});
+        label.textContent = "Reproduciendo…";
+        a.onended = function () { label.textContent = "Escuchar"; btn.disabled = false; };
+        a.onerror = function () { label.textContent = "Escuchar"; btn.disabled = false; };
+      }).catch(function () {
+        label.textContent = "Escuchar";
+        btn.disabled = false;
+      });
+    });
+    afterDesahogo();
+  });
+}
+
+/* Re-cuenta la ÚLTIMA parábola en el estilo pedido ("la misma historia pero en
+   venezolano"). Usa tata-parabola en modo retell: misma historia, otro ropaje.
+   Se guarda como entrada nueva con su tipo y NO consume el límite de 10. */
+function retellParabola(userText) {
+  var mem = loadMemory();
+  var lista = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
+  var firstName = cleanFirstName(mem.nombre) || "mi amor";
+  extraState = null;
+  waitingInput = false;
+  setInputEnabled(false);
+  if (!lista.length) {
+    var none = "Todavía no te he contado ninguna historia, " + firstName + ". ¿Empezamos con una?";
+    logConversacion(userText, none);
+    addBubble(escapeHtml(none), "in");
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    return;
+  }
+  var targetTipo = /venezolan/i.test(userText) ? "venezolana"
+    : /para\s+siempre|siempre/i.test(userText) ? "para_siempre"
+    : (function () { var ts = getTipos(); var l = ts[ts.length - 1]; return l === "venezolana" ? "para_siempre" : "venezolana"; })();
+  var last = lista[lista.length - 1];
+  var tipoLabel = targetTipo === "venezolana" ? "a lo venezolano" : "de esas de siempre";
+  var intro = "Dale, " + firstName + ", tu misma historia, ahora " + tipoLabel + ".";
+  var genId = ++parabolaGenSeq;
+  var statusRow = addBubble('<span class="status-text">' + escapeHtml("Dame un momentico, que estoy contando tu historia de nuevo...") + "</span>", "in");
+  parabolaGen = { id: genId, since: Date.now(), statusRow: statusRow, retry: function () { retellParabola(userText); } };
+  tataRetellParabola(mem.nombre, last, targetTipo).then(function (p) {
+    if (!parabolaGen || parabolaGen.id !== genId) return; // reintentado desde otro lado
+    deliverParabola(p, function (urls) {
+      if (parabolaGen && parabolaGen.id !== genId) parabolaGen = null;
+      var l2 = getParabolas();
+      l2.push(p);
+      l2 = l2.slice(-10);
+      var t2 = getTipos();
+      t2.push(targetTipo);
+      t2 = t2.slice(-10);
+      saveMemory({ parabolas: l2, tipos: t2, parabola: p, parabolaAt: Date.now() });
+      logConversacion(userText, intro);
+      var row = addBubble(
+        escapeHtml(intro) + "<br><br>" + escapeHtml(p),
+        "in",
+        '<br><audio class="voice-note" controls preload="auto" src="' + urls[0] + '"></audio><br><button class="retry-btn share-audio-btn"><span>Compartir</span></button>'
+      );
+      wireShareButton(row, urls[0]);
+      afterDesahogo();
+    }, statusRow, function (done, total) {
+      setStatusText(statusRow, "Le estoy poniendo mi voz... (" + done + " de " + total + ")");
+    }, genId);
+  }).catch(function () {
+    if (!parabolaGen || parabolaGen.id !== genId) return;
+    parabolaGen = null;
+    statusRow.remove();
+    var row = addBubble(
+      "Tuve un problema contando tu historia de nuevo. ¿Lo intentamos?",
+      "in",
+      '<br><button class="retry-btn retry-retell-btn">Reintentar</button>'
+    );
+    // La persona nunca queda sin poder hablar: el input sigue habilitado.
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    var bRetry = row.querySelector(".retry-retell-btn");
+    if (bRetry) bRetry.addEventListener("click", function () {
+      row.remove();
+      retellParabola(userText);
+    });
+  });
+}
+
 function buildParabolaPayload(isExtra, tipo) {
   var mem = loadMemory();
   var conv = (mem.conversacion || []).map(function (m) { return "Persona: " + m.u + "\nTata: " + m.t; }).join("\n");
@@ -718,6 +1028,9 @@ var PENSANDO_LARGA = [
 
 /* El usuario elige el tipo de cuento: venezolana o de las de para siempre. */
 function handleEligeTipo(text) {
+  // Si pide la misma historia en otro estilo, se hace eso (más inteligente
+  // que tratarlo como una simple elección de tipo).
+  if (typeof RETELL_RE !== "undefined" && RETELL_RE.test(text)) { extraState = null; retellParabola(text); return; }
   var tipo = null;
   if (/venezolan/i.test(text)) tipo = "venezolana";
   else if (/para siempre|siempre|antaño|etern/i.test(text)) tipo = "para_siempre";
@@ -751,6 +1064,8 @@ function saveWhatsappBestEffort(tel) {
 }
 
 function handleDesahogo(text) {
+  if (RETELL_RE.test(text)) { retellParabola(text); return; }
+  if (REPITE_RE.test(text)) { repetirUltimaHistoria(text); return; }
   if (OTRA_RE.test(text)) { pedirOtraParabola(true); return; }
   var telMatch = String(text).match(WHATSAPP_RE);
   if (telMatch) {
@@ -843,11 +1158,15 @@ function afterDesahogo() {
         hideTyping();
         var row = addBubble(
           escapeHtml(decirMijo(pick(OFRECE_HISTORIA))) +
-          '<br><button class="retry-btn qr-btn" id="qr-si-otra">Sí</button> ' +
-          '<button class="retry-btn qr-btn" id="qr-otra">Cuéntame otra</button>',
+          '<br><button class="retry-btn qr-btn qr-si-otra">Sí</button> ' +
+          '<button class="retry-btn qr-btn qr-otra">Cuéntame otra</button>',
           "in");
-        document.getElementById("qr-si-otra").addEventListener("click", function () { quickReply("sí"); });
-        document.getElementById("qr-otra").addEventListener("click", function () { quickReply("cuéntame otra historia"); });
+        // Cableado por fila: con ids duplicados (la oferta sale tras cada historia)
+        // el listener caía en botones viejos ya deshabilitados.
+        var bSiOtra = row.querySelector(".qr-si-otra");
+        var bOtra = row.querySelector(".qr-otra");
+        if (bSiOtra) bSiOtra.addEventListener("click", function () { safeQuickReply("sí"); });
+        if (bOtra) bOtra.addEventListener("click", function () { safeQuickReply("cuéntame otra historia"); });
         extraState = "ofrece-historia";
         waitingInput = true;
         setInputEnabled(true);
@@ -909,9 +1228,14 @@ function deliverParabola(p, onReady, statusRow, onProgress, genId) {
     var row = addBubble(
       "Tuve un problema preparando mi voz para tu historia. ¿Lo intentamos de nuevo?",
       "in",
-      '<br><button class="retry-btn" id="retry-delivery">Reintentar</button>'
+      '<br><button class="retry-btn retry-delivery-btn">Reintentar</button>'
     );
-    document.getElementById("retry-delivery").addEventListener("click", function () {
+    // La persona nunca queda sin poder hablar: el input sigue habilitado.
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    var bRetryDel = row.querySelector(".retry-delivery-btn");
+    if (bRetryDel) bRetryDel.addEventListener("click", function () {
       row.remove();
       deliverParabola(p, onReady);
     });
@@ -934,9 +1258,10 @@ document.addEventListener("visibilitychange", function () {
   var row = addBubble(
     "Se me quedó pegado pensando tu historia. ¿Lo intentamos de nuevo?",
     "in",
-    '<br><button class="retry-btn" id="retry-stuck">Reintentar</button>'
+    '<br><button class="retry-btn retry-stuck-btn">Reintentar</button>'
   );
-  document.getElementById("retry-stuck").addEventListener("click", function () {
+  var bRetryStuck = row.querySelector(".retry-stuck-btn");
+  if (bRetryStuck) bRetryStuck.addEventListener("click", function () {
     row.remove();
     if (pp.retry) pp.retry();
     else generateParabolaFlow(pp.isExtra, pp.tipo);
@@ -979,9 +1304,14 @@ function generateParabolaFlow(isExtra, tipo) {
     var row = addBubble(
       "Tuve un problema escribiendo tu historia. ¿Lo intentamos de nuevo?",
       "in",
-      '<br><button class="retry-btn" id="retry-parabola">Reintentar</button>'
+      '<br><button class="retry-btn retry-parabola-btn">Reintentar</button>'
     );
-    document.getElementById("retry-parabola").addEventListener("click", function () {
+    // La persona nunca queda sin poder hablar: el input sigue habilitado.
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    var bRetryPar = row.querySelector(".retry-parabola-btn");
+    if (bRetryPar) bRetryPar.addEventListener("click", function () {
       row.remove();
       generateParabolaFlow(isExtra, tipo);
     });
@@ -1132,6 +1462,12 @@ function renderHistory() {
 
 function startConversation() {
   var mem = loadMemory();
+  if (!mem.nombre && !restoreAttempted) {
+    // Sin memoria local: puede ser un dispositivo conocido con los datos borrados.
+    // Se intenta restaurar del servidor y se sigue el flujo normal con lo que haya.
+    restoreFromServer(function () { startConversation(); });
+    return;
+  }
   var firstName = cleanFirstName(mem.nombre) || "mi amor";
   // Continuidad genuina: los últimos intercambios vuelven a verse antes del saludo.
   renderHistory();
@@ -1283,6 +1619,14 @@ function quickReply(text) {
   submitAnswer(text);
 }
 
+/* Los taps nunca dejan a la persona sin salida: si algo falla en el handler,
+   el input se re-habilita para que pueda escribir. */
+function safeQuickReply(text) {
+  try { quickReply(text); } catch (e) {
+    try { waitingInput = true; setInputEnabled(true); inputEl.focus(); } catch (_e) {}
+  }
+}
+
 /* Voz del resumen: se prepara en segundo plano en cuanto sale el texto,
    para que "Escuchar" suene de inmediato cuando la toquen. */
 function wireResumenVoice(row, texto) {
@@ -1311,15 +1655,18 @@ function showResumenStep(texto) {
   var row = addBubble(
     escapeHtml(texto),
     "in",
-    '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button> <button class="retry-btn" id="reset-memory">Empezar de nuevo</button><br><button class="retry-btn qr-btn" id="qr-si">Sí</button> <button class="retry-btn qr-btn" id="qr-no">No</button>'
+    '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button> <button class="retry-btn reset-memory-btn">Empezar de nuevo</button><br><button class="retry-btn qr-btn qr-si">Sí</button> <button class="retry-btn qr-btn qr-no">No</button>'
   );
   wireResumenVoice(row, texto);
-  document.getElementById("reset-memory").addEventListener("click", function () {
+  var bReset = row.querySelector(".reset-memory-btn");
+  if (bReset) bReset.addEventListener("click", function () {
     clearMemory();
     location.reload();
   });
-  document.getElementById("qr-si").addEventListener("click", function () { quickReply("sí"); });
-  document.getElementById("qr-no").addEventListener("click", function () { quickReply("no"); });
+  var bSi = row.querySelector(".qr-si");
+  var bNo = row.querySelector(".qr-no");
+  if (bSi) bSi.addEventListener("click", function () { safeQuickReply("sí"); });
+  if (bNo) bNo.addEventListener("click", function () { safeQuickReply("no"); });
   extraState = "pregunta-extra";
   waitingInput = true;
   setInputEnabled(true);
@@ -1344,9 +1691,10 @@ function finishConversation() {
     const row = addBubble(
       "Tuve un problema de conexión y no pude guardar tus respuestas. ¿Lo intentamos de nuevo?",
       "in",
-      '<br><button class="retry-btn" id="retry-save">Reintentar</button>'
+      '<br><button class="retry-btn retry-save-btn">Reintentar</button>'
     );
-    document.getElementById("retry-save").addEventListener("click", function () {
+    var bRetrySave = row.querySelector(".retry-save-btn");
+    if (bRetrySave) bRetrySave.addEventListener("click", function () {
       this.disabled = true;
       finishConversation();
     });
