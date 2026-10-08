@@ -656,7 +656,7 @@ function logConversacion(userText, tataText) {
   saveMemory({ conversacion: conv.slice(-20) });
 }
 
-var OTRA_RE = /otr[ao]s?\s+(par[áa]bolas?|historias?|cuentos?)|cu[ée]ntame\s+otra|quiero\s+otra|otra\s+m[áa]s/i;
+var OTRA_RE = /otr[ao]s?\s+(par[áa]bolas?|historias?|cuentos?)|cu[ée]ntame(\s+(otra|una))?|quiero\s+(otra|una\s+(historia|par[áa]bola|cuento))|otra\s+m[áa]s|una\s+(historia|par[áa]bola|cuento|de las de siempre)/i;
 
 function pedirOtraParabola() {
   var lista = getParabolas();
@@ -902,7 +902,7 @@ async function tataEco(modo, pregunta, ultima, ctxOverride) {
 
 let extraState = null; // "pregunta-extra" | "pregunta-extra2"
 var NO_RE = /^\s*(no|nah|nop|para nada|creo que no|estoy bien|ya estoy|listo|no,?\s*gracias)/i;
-var YES_SHORT_RE = /^\s*(s[ií]|claro|dale|bueno|vale)\.?\s*$/i;
+var YES_SHORT_RE = /^\s*(s[ií]+|sip?|claro( que s[ií]+)?|dale|bueno|vale|obvio|de una|por supuesto)\.?!?\s*$/i;
 
 function proceedToParable(withThanks) {
   extraState = null;
@@ -939,8 +939,8 @@ function handleExtraState(text) {
       inputEl.focus();
     }, null);
   } else if (extraState === "ofrece-historia") {
-    // Respuesta ambigua: sigue el desahogo normal.
-    extraState = null;
+    // Respuesta ambigua: Tata responde con calidez, pero la oferta sigue en pie
+    // (no se limpia extraState: el próximo "siii" sí dispara la historia).
     handleDesahogo(text);
   } else if (extraState === "elige-tipo") {
     handleEligeTipo(text);
