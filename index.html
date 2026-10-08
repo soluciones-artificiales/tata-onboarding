@@ -871,7 +871,7 @@ var REPITE_RE = /(repite|repite ?me|rep[ií]teme|pon ?me|escuchar).*(historia|pa
    no se va por el guion. */
 var RETELL_RE = /(misma|mismo)\s+(historia|par[áa]bola|cuento)|(historia|par[áa]bola|cuento)[^.?!]{0,40}\b(misma|mismo)\b|cu[ée]ntame\s+la\s+misma|la\s+misma\s+pero/i;
 
-function pedirOtraParabola(autoTipo) {
+function pedirOtraParabola(autoTipo, forcedTipo) {
   var lista = getParabolas();
   if (lista.length >= 10) {
     waitingInput = false;
@@ -879,15 +879,19 @@ function pedirOtraParabola(autoTipo) {
     brotherSay(decirMijo(pick(TERCERA_HISTORIA)), function () {}, null);
     return;
   }
-  if (autoTipo) {
+  // El cerebro puede pedir un tipo concreto; "auto" alterna con la última contada.
+  var tipo = forcedTipo || null;
+  if (!tipo && autoTipo) {
     // "Otra historia" = la versión que NO le contó: alterna el tipo sin preguntar.
     var tipos = getTipos();
     var last = tipos[tipos.length - 1];
     if (!last) { pedirOtraParabola(false); return; }
-    var tipo = last === "venezolana" ? "para_siempre" : "venezolana";
-    var msg = last === "venezolana"
-      ? "Dale, ahora te cuento una de esas de siempre."
-      : "Dale, ahora te cuento una a lo venezolano.";
+    tipo = last === "venezolana" ? "para_siempre" : "venezolana";
+  }
+  if (tipo) {
+    var msg = tipo === "venezolana"
+      ? "Dale, ahora te cuento una a lo venezolano."
+      : "Dale, ahora te cuento una de esas de siempre.";
     waitingInput = false;
     setInputEnabled(false);
     eligeTipoExtra = true;
@@ -971,7 +975,7 @@ function repetirUltimaHistoria(userText) {
 /* Re-cuenta la ÚLTIMA parábola en el estilo pedido ("la misma historia pero en
    venezolano"). Usa tata-parabola en modo retell: misma historia, otro ropaje.
    Se guarda como entrada nueva con su tipo y NO consume el límite de 10. */
-function retellParabola(userText) {
+function retellParabola(userText, forcedTipo) {
   var mem = loadMemory();
   var lista = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
   var firstName = cleanFirstName(mem.nombre) || "mi amor";
@@ -987,9 +991,10 @@ function retellParabola(userText) {
     inputEl.focus();
     return;
   }
-  var targetTipo = /venezolan/i.test(userText) ? "venezolana"
+  var targetTipo = forcedTipo
+    || (/venezolan/i.test(userText) ? "venezolana"
     : /para\s+siempre|siempre/i.test(userText) ? "para_siempre"
-    : (function () { var ts = getTipos(); var l = ts[ts.length - 1]; return l === "venezolana" ? "para_siempre" : "venezolana"; })();
+    : (function () { var ts = getTipos(); var l = ts[ts.length - 1]; return l === "venezolana" ? "para_siempre" : "venezolana"; })());
   var last = lista[lista.length - 1];
   var tipoLabel = targetTipo === "venezolana" ? "a lo venezolano" : "de esas de siempre";
   var intro = "Dale, " + firstName + ", tu misma historia, ahora " + tipoLabel + ".";
@@ -1097,10 +1102,112 @@ function saveWhatsappBestEffort(tel) {
   }).catch(function () {});
 }
 
-function handleDesahogo(text) {
-  if (RETELL_RE.test(text)) { retellParabola(text); return; }
-  if (REPITE_RE.test(text)) { repetirUltimaHistoria(text); return; }
-  if (OTRA_RE.test(text)) { pedirOtraParabola(true); return; }
+/* ---------- Cerebro conversacional de Tata ----------
+   Todo el texto libre después del onboarding pasa por tata-chat: la función
+   entiende la intención con contexto y devuelve {action, texto, tipo}.
+   El cerebro manda; los regex quedan solo como respaldo si falla la red. */
+var PAGE_LANG = "es"; // "en" en en/index.html
+
+async function tataChat(message, situacion) {
+  var mem = loadMemory();
+  var allP = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
+  var allT = getTipos();
+  var nP = Math.min(3, allP.length);
+  var paras = [];
+  for (var i = 0; i < nP; i++) {
+    paras.push({ texto: String(allP[allP.length - nP + i]).slice(0, 4000), tipo: allT[allT.length - nP + i] || "" });
+  }
+  var flat = [];
+  (mem.conversacion || []).slice(-5).forEach(function (m) {
+    if (m.u) flat.push({ role: "user", text: String(m.u).slice(0, 2000) });
+    if (m.t) flat.push({ role: "tata", text: String(m.t).slice(0, 2000) });
+  });
+  var res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-chat", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      device_id: getDeviceId(), lang: PAGE_LANG, message: message,
+      nombre: mem.nombre || "", answers: mem.answers || {},
+      parabolas: paras, conversacion: flat, situacion: situacion || ""
+    })
+  }, 30000);
+  if (!res.ok) throw new Error("chat " + res.status);
+  var data = await res.json();
+  var action = data && data.action;
+  if (["parable", "retell", "replay", "reply"].indexOf(action) === -1) throw new Error("chat acción inválida");
+  var tipo = data.tipo;
+  if (["auto", "venezolana", "para_siempre"].indexOf(tipo) === -1) tipo = "auto";
+  return { action: action, texto: String(data.texto || "").slice(0, 2000), tipo: tipo };
+}
+
+/* Resuelve el tipo que pide el cerebro: "auto" alterna con la última contada. */
+function resolveBrainTipo(tipo) {
+  if (tipo === "venezolana" || tipo === "para_siempre") return tipo;
+  var ts = getTipos();
+  var l = ts[ts.length - 1];
+  return l === "venezolana" ? "para_siempre" : "venezolana";
+}
+
+function handleBrainAction(userText, brain) {
+  logEvento("chat_msg", { action: brain.action });
+  if (brain.action === "parable") {
+    pedirOtraParabola(true, resolveBrainTipo(brain.tipo));
+  } else if (brain.action === "retell") {
+    retellParabola(userText, resolveBrainTipo(brain.tipo));
+  } else if (brain.action === "replay") {
+    repetirUltimaHistoria(userText);
+  } else {
+    var texto = brain.texto || decirMijo("Te escucho, mijo. Sigue, que estoy aquí.");
+    renderTataVoiceReply(userText, texto, afterDesahogo);
+  }
+}
+
+/* Burbuja de Tata con su voz lista (mismo patrón en todas partes): el audio se
+   prepara primero y la burbuja sale después. Si la voz falla, botón Escuchar
+   que genera dentro del gesto (iOS-safe). */
+function renderTataVoiceReply(userText, tataText, onDone) {
+  logConversacion(userText, tataText);
+  prepareParabolaVoice(tataText).then(function (urls) {
+    hideTyping();
+    addBubble(
+      escapeHtml(tataText),
+      "in",
+      '<br><audio class="voice-note" controls preload="auto" src="' + urls[0] + '"></audio>'
+    );
+    if (onDone) onDone();
+  }).catch(function () {
+    hideTyping();
+    var row = addBubble(
+      escapeHtml(tataText),
+      "in",
+      '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>'
+    );
+    var btn = row.querySelector(".live-voice-btn");
+    if (btn) btn.addEventListener("click", function () {
+      btn.disabled = true;
+      var label = btn.querySelector("span") || btn;
+      label.textContent = "Preparando mi voz…";
+      var a = new Audio();
+      a.play().catch(function () {}); // dentro del gesto: iOS desbloquea el elemento
+      prepareParabolaVoice(tataText).then(function (u2) {
+        a.src = u2[0];
+        a.play().catch(function () {});
+        label.textContent = "Reproduciendo…";
+        a.onended = function () { label.textContent = "Escuchar"; btn.disabled = false; };
+        a.onerror = function () { label.textContent = "Escuchar"; btn.disabled = false; };
+      }).catch(function () {
+        label.textContent = "Escuchar"; btn.disabled = false;
+      });
+    });
+    if (onDone) onDone();
+  });
+}
+
+function handleDesahogo(text, situacion) {
   var telMatch = String(text).match(WHATSAPP_RE);
   if (telMatch) {
     var tel = telMatch[1].replace(/[^\d+]/g, "");
@@ -1108,14 +1215,18 @@ function handleDesahogo(text) {
     setInputEnabled(false);
     showTyping();
     setTimeout(function () {
-      hideTyping();
-      var ack = pick(WHATSAPP_ACK);
-      saveWhatsappBestEffort(tel);
-      logConversacion(text, ack);
-      addBubble(escapeHtml(ack), "in");
+      try {
+        hideTyping();
+        var ack = pick(WHATSAPP_ACK);
+        saveWhatsappBestEffort(tel);
+        logConversacion(text, ack);
+        addBubble(escapeHtml(ack), "in");
+      } catch (e) {
+        try { hideTyping(); } catch (_e) {}
+      }
       waitingInput = true;
       setInputEnabled(true);
-      inputEl.focus();
+      try { inputEl.focus(); } catch (_e2) {}
     }, typingDelay());
     return;
   }
@@ -1123,56 +1234,33 @@ function handleDesahogo(text) {
   setInputEnabled(false);
   showTyping();
   logEvento("desahogo_msg", {});
+  tataChat(text, situacion || "").then(function (brain) {
+    // Si el cerebro generó algo (historia / re-escucha), la oferta pendiente
+    // quedó consumida; si solo conversó, la oferta sigue en pie.
+    if (brain.action !== "reply") extraState = null;
+    handleBrainAction(text, brain);
+  }).catch(function () {
+    handleDesahogoLegacy(text); // sin cerebro: el comportamiento de hoy
+  });
+}
+
+/* Respaldo si tata-chat falla: regex + eco, como antes. Nunca rompe el chat. */
+function handleDesahogoLegacy(text) {
+  if (RETELL_RE.test(text)) { retellParabola(text); return; }
+  if (REPITE_RE.test(text)) { repetirUltimaHistoria(text); return; }
+  if (OTRA_RE.test(text)) { pedirOtraParabola(true); return; }
   // En el desahogo responde a lo NUEVO: contexto = conversación reciente, no todo de nuevo.
   var mem = loadMemory();
   var conv = (mem.conversacion || []).slice(-6).map(function (m) { return "Persona: " + m.u + "\nTata: " + m.t; }).join("\n");
   var ctx = "Siguen conversando después de su historia. NO resumas todo lo que te contó antes; responde SOLO a su último mensaje, con calidez, en 1-2 líneas específicas. Usa su nombre si suena natural. No abras con cariños ni fórmulas; cada respuesta suena distinta, como una conversación real, no un guion." +
     (conv ? "\nLo último que hablaron:\n" + conv : "");
     tataEco("ack", "", text, ctx).then(function (eco) {
-    logConversacion(text, eco);
-    // El texto NUNCA sale sin su voz lista: se prepara primero, la burbuja sale después.
-    prepareParabolaVoice(eco).then(function (urls) {
-      hideTyping();
-      addBubble(
-        escapeHtml(eco),
-        "in",
-        '<br><audio class="voice-note" controls preload="auto" src="' + urls[0] + '"></audio>'
-      );
-      afterDesahogo();
-    }).catch(function () {
-      // La voz no se pudo preparar: el texto sale con botón Escuchar que
-      // genera la voz y la reproduce DENTRO del gesto del tap (iOS-safe).
-      hideTyping();
-      var row = addBubble(
-        escapeHtml(eco),
-        "in",
-        '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>'
-      );
-      var btn = row.querySelector(".live-voice-btn");
-      if (btn) btn.addEventListener("click", function () {
-        btn.disabled = true;
-        var label = btn.querySelector("span") || btn;
-        label.textContent = "Preparando mi voz…";
-        var a = new Audio();
-        a.play().catch(function () {}); // dentro del gesto: iOS desbloquea el elemento
-        prepareParabolaVoice(eco).then(function (u2) {
-          a.src = u2[0];
-          a.play().catch(function () {});
-          label.textContent = "Reproduciendo…";
-          a.onended = function () { label.textContent = "Escuchar"; btn.disabled = false; };
-          a.onerror = function () { label.textContent = "Escuchar"; btn.disabled = false; };
-        }).catch(function () {
-          label.textContent = "Escuchar";
-          btn.disabled = false;
-        });
-      });
-      afterDesahogo();
-    });
+    renderTataVoiceReply(text, eco, afterDesahogo);
   }).catch(function () {
-     
     hideTyping();
-    logConversacion(text, decirMijo("Te escucho, mijo. Sigue, que estoy aquí."));
-    addBubble(decirMijo("Te escucho, mijo. Sigue, que estoy aquí."));
+    var fb = decirMijo("Te escucho, mijo. Sigue, que estoy aquí.");
+    logConversacion(text, fb);
+    addBubble(fb);
     waitingInput = true;
     setInputEnabled(true);
     inputEl.focus();
@@ -1190,6 +1278,7 @@ function afterDesahogo() {
     setTimeout(function () {
       showTyping();
       setTimeout(function () {
+        try {
         hideTyping();
         var row = addBubble(
           escapeHtml(decirMijo(pick(OFRECE_HISTORIA))) +
@@ -1206,6 +1295,13 @@ function afterDesahogo() {
         waitingInput = true;
         setInputEnabled(true);
         inputEl.focus();
+        } catch (e) {
+          // La oferta nunca puede dejar el input muerto.
+          try { hideTyping(); } catch (_e) {}
+          waitingInput = true;
+          setInputEnabled(true);
+          try { inputEl.focus(); } catch (_e2) {}
+        }
       }, typingDelay());
     }, 1200);
   } else {
@@ -1255,7 +1351,28 @@ function deliverParabola(p, onReady, statusRow, onProgress, genId) {
     hideTyping();
     if (statusRow) statusRow.remove();
     parabolaUrls = urls;
-    onReady(urls);
+    try {
+      onReady(urls);
+    } catch (e) {
+      // El onReady nunca puede dejar el input muerto: se habilita y se ofrece
+      // reintentar con suavidad (igual que cuando falla la voz).
+      logEvento("error_generacion", { donde: "onready" });
+      waitingInput = true;
+      setInputEnabled(true);
+      try { inputEl.focus(); } catch (_e) {}
+      try {
+        var row = addBubble(
+          "Tuve un problema mostrando tu historia. ¿La intentamos de nuevo?",
+          "in",
+          '<br><button class="retry-btn retry-onready-btn">Reintentar</button>'
+        );
+        var bRetryOn = row.querySelector(".retry-onready-btn");
+        if (bRetryOn) bRetryOn.addEventListener("click", function () {
+          row.remove();
+          deliverParabola(p, onReady);
+        });
+      } catch (_e2) {}
+    }
   }).catch(function () {
     hideTyping();
     if (genId && parabolaGen && parabolaGen.id === genId) parabolaGen = null;
@@ -1429,9 +1546,9 @@ function handleExtraState(text) {
       inputEl.focus();
     }, null);
   } else if (extraState === "ofrece-historia") {
-    // Respuesta ambigua: Tata responde con calidez, pero la oferta sigue en pie
-    // (no se limpia extraState: el próximo "siii" sí dispara la historia).
-    handleDesahogo(text);
+    // Respuesta ambigua: el cerebro la entiende con contexto (sabe que hay
+    // una oferta pendiente). Si solo conversa, la oferta sigue en pie.
+    handleDesahogo(text, "ofrece-historia");
   } else if (extraState === "elige-tipo") {
     handleEligeTipo(text);
   } else {
@@ -1459,12 +1576,20 @@ function typingDelaySlow() { return 2600 + Math.random() * 900; }
 function brotherSay(text, then, audioSrc, slow) {
   showTyping();
   setTimeout(function () {
-    hideTyping();
-    var row = addBubble((audioSrc ? PLAY_SVG : "") + escapeHtml(text), "in");
-    if (audioSrc) wirePlayButton(row, audioSrc);
-    setInputEnabled(true);
-    waitingInput = true;
-    if (then) then();
+    try {
+      hideTyping();
+      var row = addBubble((audioSrc ? PLAY_SVG : "") + escapeHtml(text), "in");
+      if (audioSrc) wirePlayButton(row, audioSrc);
+      setInputEnabled(true);
+      waitingInput = true;
+      if (then) then();
+    } catch (e) {
+      // Nunca dejar el input muerto por una excepción al mostrar el mensaje.
+      try { hideTyping(); } catch (_e) {}
+      setInputEnabled(true);
+      waitingInput = true;
+      try { if (then) then(); } catch (_e2) {}
+    }
   }, slow ? typingDelaySlow() : typingDelay());
 }
 
@@ -1536,7 +1661,7 @@ function startConversation() {
     finished = true;
     setInputEnabled(false);
     inputEl.placeholder = "Conversación terminada";
-    addBubble(escapeHtml("Hola " + firstName + ". Vamos a terminar tu historia."), "in");
+    try { addBubble(escapeHtml("Hola " + firstName + ". Vamos a terminar tu historia."), "in"); } catch (e) {}
     ofrecerTipoParabola(false);
   } else if (mem.nombre) {
     // La persona ya estuvo aquí: la saluda por su nombre y sigue con las preguntas.
@@ -1552,25 +1677,41 @@ function startConversation() {
   }
 }
 
+/* Secuencia de burbujas de Tata, a prueba de excepciones: si cualquier paso
+   falla, se salta al final y el input SIEMPRE vuelve a habilitarse. Un guardián
+   por tiempo lo fuerza si la secuencia se tranca a mitad de camino. */
 function brotherSaySeq(items, then) {
   setInputEnabled(false);
   waitingInput = false;
+  var done = false;
+  function finish() {
+    if (done) return;
+    done = true;
+    try { hideTyping(); } catch (e) {}
+    setInputEnabled(true);
+    waitingInput = true;
+    try { if (then) then(); } catch (e) {}
+  }
+  // Guardián: (items.length * 8000 + 15000)ms sin completar -> forzar habilitación.
+  setTimeout(function () { finish(); }, (items.length * 8000) + 15000);
   function next(i) {
-    if (i >= items.length) {
-      setInputEnabled(true);
-      waitingInput = true;
-      if (then) then();
-      return;
-    }
-    showTyping();
+    if (done) return;
+    if (i >= items.length) { finish(); return; }
+    try { showTyping(); } catch (e) {}
     setTimeout(function () {
-      hideTyping();
-      var row = addBubble((items[i].audio ? PLAY_SVG : "") + escapeHtml(items[i].text), "in");
-      if (items[i].audio) wirePlayButton(row, items[i].audio);
+      if (done) return;
+      try {
+        hideTyping();
+        var row = addBubble((items[i].audio ? PLAY_SVG : "") + escapeHtml(items[i].text), "in");
+        if (items[i].audio) wirePlayButton(row, items[i].audio);
+      } catch (e) {
+        finish(); // un paso roto no tranca la conversación
+        return;
+      }
       setTimeout(function () { next(i + 1); }, 600);
     }, typingDelay());
   }
-  next(0);
+  try { next(0); } catch (e) { finish(); }
 }
 
 var QUESTION_AUDIO = [null, "t4.mp3", "t5.mp3", "t6.mp3"];
@@ -1622,11 +1763,17 @@ function answerHelpQuestion() {
   setInputEnabled(false);
   showTyping();
   setTimeout(function () {
+    try {
     hideTyping();
     var row = addBubble(PLAY_SVG + escapeHtml("Eso ya lo verás."), "in");
     wirePlayButton(row, "t8.mp3");
     setInputEnabled(true);
     waitingInput = true;
+    } catch (e) {
+      try { hideTyping(); } catch (_e) {}
+      setInputEnabled(true);
+      waitingInput = true;
+    }
   }, typingDelay());
 }
 
@@ -1937,7 +2084,8 @@ async function onRecordingStop() {
   }
   waitingInput = false;
   setInputEnabled(false);
-  var upRow = addBubble("Subiendo nota de voz…", "out");
+  var upRow = null;
+  try { upRow = addBubble("Subiendo nota de voz…", "out"); } catch (e) {}
   try {
     var url = await uploadAudio(blob);
     upRow.remove();
@@ -1958,7 +2106,7 @@ async function onRecordingStop() {
     waitingInput = true;
     submitAnswer(transcript);
   } catch (e) {
-    upRow.remove();
+    try { if (upRow) upRow.remove(); } catch (_e) {}
     addBubble("No pude subir la nota de voz. Intenta de nuevo.", "in");
     waitingInput = true;
     setInputEnabled(true);
