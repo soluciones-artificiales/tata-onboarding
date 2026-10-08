@@ -1,0 +1,1995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Tata (beta)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #0e0e0e;
+    display: flex;
+    justify-content: center;
+  }
+  #chat-shell {
+    width: 100%;
+    max-width: 480px;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: #0e0e0e;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Header estilo WhatsApp */
+  #chat-header {
+    background: #161616;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    gap: 12px;
+    flex-shrink: 0;
+    z-index: 2;
+    box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  }
+  #avatar {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    background: #128C7E;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 600;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  #avatar img { width: 100%; height: 100%; object-fit: cover; }
+  #header-text { display: flex; flex-direction: column; line-height: 1.25; }
+  #header-name { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  #beta-tag {
+    font-size: 10px; font-weight: 500;
+    background: rgba(255,255,255,.22);
+    border-radius: 8px;
+    padding: 1px 7px;
+    letter-spacing: .3px;
+  }
+  #header-status { font-size: 12px; color: #d1e7dd; }
+  /* Área de mensajes */
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 12px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .msg-row { display: flex; }
+  .msg-row.in { justify-content: flex-start; }
+  .msg-row.out { justify-content: flex-end; }
+  .bubble {
+    max-width: 82%;
+    padding: 7px 10px 5px;
+    border-radius: 8px;
+    font-size: 15.5px;
+    line-height: 1.4;
+    position: relative;
+    word-wrap: break-word;
+    box-shadow: 0 1px 1px rgba(0,0,0,.18);
+  }
+  .msg-row.in .bubble { background: #262626; color: #e9edef; border-top-left-radius: 0; }
+  .msg-row.in .bubble::before {
+    content: "";
+    position: absolute; top: 0; left: -7px;
+    border: 4px solid transparent;
+    border-top-color: #262626; border-right-color: #262626;
+  }
+  .msg-row.out .bubble { background: #005c4b; color: #e9edef; border-top-right-radius: 0; }
+  .msg-row.out .bubble::before {
+    content: "";
+    position: absolute; top: 0; right: -7px;
+    border: 4px solid transparent;
+    border-top-color: #005c4b; border-left-color: #005c4b;
+  }
+  .msg-time {
+    display: block;
+    text-align: right;
+    font-size: 11px;
+    color: #8696a0;
+    margin-top: 2px;
+  }
+  .msg-time .checks { color: #53bdeb; font-size: 12px; margin-left: 3px; }
+  /* Aviso de privacidad tipo chip */
+  .privacy-chip {
+    align-self: center;
+    background: #182229;
+    color: #ffd279;
+    font-size: 12.5px;
+    line-height: 1.45;
+    text-align: center;
+    border-radius: 8px;
+    padding: 7px 12px;
+    max-width: 92%;
+    box-shadow: 0 1px 1px rgba(0,0,0,.15);
+    margin: 4px 0;
+  }
+  /* Indicador escribiendo */
+  .typing-dots { display: inline-flex; gap: 4px; padding: 4px 2px; }
+  .typing-dots span {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #8696a0;
+    animation: blink 1.2s infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: .2s; }
+  .typing-dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 60%, 100% { opacity: .3; } 30% { opacity: 1; } }
+  /* Barra de input */
+  #input-bar {
+    background: #161616;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  #text-input {
+    flex: 1;
+    border: none;
+    outline: none;
+    border-radius: 22px;
+    padding: 11px 16px;
+    font-size: 16px;
+    font-family: inherit;
+    background: #2b2b2b;
+    color: #e9edef;
+  }
+  #send-btn {
+    width: 46px; height: 46px;
+    border: none;
+    border-radius: 50%;
+    background: #00a884;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  #send-btn:active { background: #008f6f; }
+  #send-btn:disabled { background: #a9c9c2; cursor: default; }
+  #send-btn svg { width: 22px; height: 22px; fill: #fff; }
+  .retry-btn {
+    margin-top: 6px;
+    background: #00a884; color: #fff;
+    border: none; border-radius: 16px;
+    padding: 7px 16px;
+    font-size: 14px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .retry-btn:active { background: #008f6f; }
+  /* Botón de micrófono */
+  #mic-btn {
+    width: 46px; height: 46px;
+    border: none; border-radius: 50%;
+    background: #00a884;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0;
+  }
+  #mic-btn:active { background: #008f6f; }
+  #mic-btn:disabled { background: #3a4a52; cursor: default; }
+  #mic-btn.recording { background: #c0392b; animation: recpulse 1.2s ease-in-out infinite; }
+  @keyframes recpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+  #mic-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #mic-btn svg { width: 22px; height: 22px; fill: #fff; }
+  /* UI de grabación */
+  #rec-ui { flex: 1; display: none; align-items: center; gap: 10px; color: #e9edef; font-size: 15px; }
+  #rec-ui.on { display: flex; }
+  #rec-dot { width: 12px; height: 12px; border-radius: 50%; background: #ff3b30; animation: blink 1s infinite; flex-shrink: 0; }
+  #rec-stop {
+    width: 46px; height: 46px; border: none; border-radius: 50%;
+    background: #ff3b30; cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #rec-stop svg { width: 18px; height: 18px; fill: #fff; }
+  /* Nota de voz */
+  audio.voice-note { width: 210px; height: 42px; outline: none; margin-top: 2px; }
+  /* Botón escuchar en burbujas de Brother */
+  .play-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #00a884; border: none; cursor: pointer;
+    vertical-align: middle; margin-right: 8px;
+  }
+  .play-btn svg { width: 16px; height: 16px; fill: #fff; }
+  .play-btn.playing { background: #008f6f; }
+</style>
+</head>
+<body>
+<div id="chat-shell">
+  <div id="chat-header">
+    <div id="avatar"><img src="/tata-foto.jpg" alt="Tata"></div>
+    <div id="header-text">
+      <div id="header-name">Tata <span id="beta-tag">beta</span></div>
+      <div id="header-status">online</div>
+    </div>
+  </div>
+  <div id="messages"></div>
+  <div id="input-bar">
+    <input id="text-input" type="text" placeholder="Type a message" autocomplete="off" enterkeyhint="send">
+    <div id="rec-ui"><span id="rec-dot"></span><span id="rec-time">0:00</span><span style="color:#8696a0;font-size:13px">Recording, release to send</span></div>
+    <button id="mic-btn" aria-label="Record a voice note">
+      <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.10-.60-.39-1.14-1-1.14z"/></svg>
+    </button>
+    <button id="send-btn" aria-label="Send" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
+    <button id="rec-stop" aria-label="Stop and send" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   CREDENCIALES DE SUPABASE: rellenar antes de publicar
+   ============================================================ */
+const SUPABASE_URL = "https://sjsnnumwshvtxahpdszq.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqc25udW13c2h2dHhhaHBkc3pxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNTE1MTgsImV4cCI6MjEwNjkyNzUxOH0.3PnzdavX4l2o8Q2Zj1jwwZtEDa3FiZnFGEJgNNREihc";
+/* ============================================================ */
+
+const messagesEl = document.getElementById("messages");
+const inputEl = document.getElementById("text-input");
+const sendBtn = document.getElementById("send-btn");
+const micBtn = document.getElementById("mic-btn");
+const recUi = document.getElementById("rec-ui");
+const recStop = document.getElementById("rec-stop");
+const recTime = document.getElementById("rec-time");
+
+const answers = { nombre: "", que_pesa: "", que_quiere: "", que_voz: "", que_extra: "" };
+const answerKeys = ["nombre", "que_pesa", "que_quiere", "que_voz"];
+
+const QUESTIONS = [
+  "What is your name?",
+  "What is weighing on you right now?",
+  "What do you really want?",
+  "What voice tells you that you can't?"
+];
+
+/* ---------- Memoria de Tata (este dispositivo) ---------- */
+var MEM_KEY = "tata-memory-v1-en";
+function loadMemory() {
+  try {
+    var m = JSON.parse(localStorage.getItem(MEM_KEY) || "null");
+    if (m && typeof m === "object") return m;
+  } catch (e) {}
+  try {
+    var s = JSON.parse(sessionStorage.getItem(MEM_KEY) || "null");
+    return (s && typeof s === "object") ? s : {};
+  } catch (e) { return {}; }
+}
+function saveMemory(patch) {
+  try {
+    var m = loadMemory();
+    for (var k in patch) m[k] = patch[k];
+    var json = JSON.stringify(m);
+    try { localStorage.setItem(MEM_KEY, json); } catch (e) {}
+    try { sessionStorage.setItem(MEM_KEY, json); } catch (e) {}
+  } catch (e) { /* almacenamiento no disponible */ }
+  // Servidor en segundo plano (debounce): si la red falla, lo local ya quedó guardado.
+  scheduleServerSync();
+}
+function clearMemory() {
+  try { localStorage.removeItem(MEM_KEY); } catch (e) {}
+  try { sessionStorage.removeItem(MEM_KEY); } catch (e) {}
+}
+
+/* ---------- Memoria en servidor: la conversación sobrevive aunque el navegador borre sus datos ----------
+   El device_id es anónimo (no es el número de teléfono, no es login). Todo es best-effort:
+   si la red falla, la memoria local sigue intacta y la experiencia no se frena. */
+var DEVICE_KEY = "tata-device-v1-en";
+function getDeviceId() {
+  var fb = "dev-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e9).toString(36);
+  try {
+    var id = localStorage.getItem(DEVICE_KEY);
+    if (id) return id;
+    id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : fb;
+    try { localStorage.setItem(DEVICE_KEY, id); } catch (e) {}
+    return id;
+  } catch (e) { return fb; }
+}
+/* Sube la memoria al servidor. Se llama con debounce desde saveMemory, nunca bloquea la UI. */
+var _syncTimer = null;
+function scheduleServerSync() {
+  try {
+    if (_syncTimer) clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(function () { _syncTimer = null; syncMemoryToServer(); }, 2000);
+  } catch (e) {}
+}
+function syncMemoryToServer() {
+  try {
+    var mem = loadMemory();
+    var payload = {
+      device_id: getDeviceId(),
+      nombre: mem.nombre || null,
+      answers: mem.answers || {},
+      parabolas: mem.parabolas || [],
+      tipos: mem.tipos || [],
+      conversacion: mem.conversacion || [],
+      updated_at: new Date().toISOString(),
+      lang: "en"
+    };
+    fetchTimeout(SUPABASE_URL + "/functions/v1/tata-save", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    }, 15000).catch(function () {});
+  } catch (e) { /* best-effort: lo local ya quedó guardado */ }
+}
+/* Al arrancar: si el navegador no tiene memoria local, intenta restaurarla del servidor.
+   done() se llama siempre (haya o no fila), con timeout de 8s. */
+var restoreAttempted = false;
+function restoreFromServer(done) {
+  restoreAttempted = true;
+  try {
+    fetchTimeout(SUPABASE_URL + "/functions/v1/tata-restore", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ device_id: getDeviceId(), lang: "en" })
+    }, 8000).then(function (res) {
+      if (!res.ok) throw new Error("restore " + res.status);
+      return res.json();
+    }).then(function (data) {
+      var r = data && data.row;
+      if (r) {
+        try {
+          var m = {};
+          if (r.nombre) m.nombre = r.nombre;
+          if (r.answers) m.answers = r.answers;
+          if (r.parabolas) m.parabolas = r.parabolas;
+          if (r.tipos) m.tipos = r.tipos;
+          if (r.conversacion) m.conversacion = r.conversacion;
+          var json = JSON.stringify(m);
+          try { localStorage.setItem(MEM_KEY, json); } catch (e) {}
+          try { sessionStorage.setItem(MEM_KEY, json); } catch (e) {}
+        } catch (e) {}
+      }
+    }).catch(function () {}).then(function () { done(); });
+  } catch (e) { done(); }
+}
+
+/* ---------- Analítica de experiencia: eventos best-effort ----------
+   Cada evento lleva device_id anónimo + detalle. Fire-and-forget con catch:
+   jamás bloquea la UI ni rompe la experiencia si la red falla. */
+function logEvento(evento, detalle) {
+  try {
+    fetch(SUPABASE_URL + "/functions/v1/tata-event", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ device_id: getDeviceId(), evento: evento, detalle: Object.assign({ lang: "en" }, detalle || {}) })
+    }).catch(function () {});
+  } catch (e) {}
+}
+
+let step = 0;            // índice de la próxima pregunta por hacer
+let waitingInput = false;
+let finished = false;
+
+function now() {
+  return new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function scrollDown() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function addBubble(text, from, extraHtml) {
+  const row = document.createElement("div");
+  row.className = "msg-row " + from;
+  const checks = from === "out" ? '<span class="checks">✓✓</span>' : "";
+  row.innerHTML = '<div class="bubble">' + text +
+    (extraHtml || "") +
+    '<span class="msg-time">' + now() + checks + "</span></div>";
+  messagesEl.appendChild(row);
+  scrollDown();
+  return row;
+}
+
+function addPrivacyChip() {
+  const chip = document.createElement("div");
+  chip.className = "privacy-chip";
+  chip.textContent = "Your answers are saved to create your personalized experience. Only Diego's team can see them.";
+  messagesEl.appendChild(chip);
+  scrollDown();
+}
+
+let typingRow = null;
+function showTyping() {
+  typingRow = document.createElement("div");
+  typingRow.className = "msg-row in";
+  typingRow.innerHTML = '<div class="bubble"><span class="typing-dots"><span></span><span></span><span></span></span></div>';
+  messagesEl.appendChild(typingRow);
+  scrollDown();
+  setInputEnabled(false);
+}
+function hideTyping() {
+  if (typingRow) { typingRow.remove(); typingRow = null; }
+}
+
+function setInputEnabled(on) {
+  inputEl.disabled = !on;
+  sendBtn.disabled = !on;
+  micBtn.disabled = !on;
+  if (on) inputEl.focus();
+}
+
+/* ---------- Voz de Brother (TTS pregenerado, mi voz) ---------- */
+let currentAudio = null, currentPlayBtn = null;
+function toggleBrotherAudio(src, btn) {
+  if (currentAudio && !currentAudio.paused && currentPlayBtn === btn) {
+    currentAudio.pause();
+    btn.classList.remove("playing");
+    return;
+  }
+  if (currentAudio) {
+    currentAudio.pause();
+    if (currentPlayBtn) currentPlayBtn.classList.remove("playing");
+  }
+  currentAudio = new Audio(src);
+  currentPlayBtn = btn;
+  btn.classList.add("playing");
+  currentAudio.onended = function () { btn.classList.remove("playing"); };
+  currentAudio.play().catch(function () { btn.classList.remove("playing"); });
+}
+
+var PLAY_SVG = '<button class="play-btn" aria-label="Listen"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>';
+
+function wirePlayButton(row, audioSrc) {
+  var btn = row.querySelector(".play-btn");
+  if (btn) btn.addEventListener("click", function () { toggleBrotherAudio(audioSrc, btn); });
+}
+
+/* ---------- Voz viva de Tata: saludo generado en el momento (Edge Function -> ElevenLabs) ---------- */
+/* fetch con timeout: si la red se queda colgada, fallar en vez de "teclear" para siempre */
+async function fetchTimeout(url, opts, ms) {
+  var ctrl = new AbortController();
+  var t = setTimeout(function () { ctrl.abort(); }, ms || 60000);
+  try {
+    return await fetch(url, Object.assign({}, opts, { signal: ctrl.signal }));
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function tataTtsBlob(text) {
+  const res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-tts", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ text: text, device_id: getDeviceId() })
+  });
+  if (!res.ok) throw new Error("tts " + res.status);
+  return await res.blob();
+}
+async function tataTtsUrl(text) {
+  return URL.createObjectURL(await tataTtsBlob(text));
+}
+function cleanFirstName(n) {
+  var skip = /^(hi|hello|hey|good|morning|evening|afternoon|my|name|is|i|am|im|tata|grandma)$/i;
+  var words = String(n || "").trim().split(/\s+/);
+  for (var i = 0; i < words.length; i++) {
+    var w = words[i].replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/g, "");
+    if (w && !skip.test(w)) return w.slice(0, 24);
+  }
+  return "";
+}
+/* ---------- Parábola personalizada: tata-parabola + voz de Tata por fragmentos ---------- */
+async function tataParabola(a) {
+  // Si el modelo devuelve vacío o falla, reintentar solo antes de rendirse.
+  var lastErr = new Error("parabola falló");
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-parabola", {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz, tipo: a.tipo || "", device_id: getDeviceId(), lang: "en" })
+      }, 90000);
+      if (!res.ok) throw new Error("parabola " + res.status);
+      var data = await res.json();
+      var p = data && data.parabola ? String(data.parabola).trim() : "";
+      if (!p) throw new Error("parabola vacía");
+      return p;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+/* Re-contar la misma parábola en otro estilo: modo retell de tata-parabola. */
+async function tataRetellParabola(nombre, parabolaText, tipo) {
+  var lastErr = new Error("retell falló");
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-parabola", {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ mode: "retell", nombre: nombre, parabola: parabolaText, tipo: tipo || "", device_id: getDeviceId(), lang: "en" })
+      }, 90000);
+      if (!res.ok) throw new Error("retell " + res.status);
+      var data = await res.json();
+      var p = data && data.parabola ? String(data.parabola).trim() : "";
+      if (!p) throw new Error("retell vacío");
+      return p;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+/* Fragmentos cortos para que la voz no se degrade (anti-drift): párrafos o bloques de ~2 oraciones */
+function splitParabola(text) {
+  var parts = String(text).split(/\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
+  var out = [];
+  parts.forEach(function (p) {
+    var sentences = p.match(/[^.!?…]+[.!?…]+["”']?\s*/g) || [p];
+    var buf = "";
+    sentences.forEach(function (s) {
+      if (buf && (buf + " " + s).trim().split(/\s+/).length > 45) { out.push(buf); buf = s.trim(); }
+      else buf = (buf + " " + s).trim();
+    });
+    if (buf) out.push(buf);
+  });
+  return out.length ? out : [String(text)];
+}
+
+let parabolaUrls = null, parabolaAudio = null;
+
+/* Reproductor genérico de secuencias de audio */
+function playUrlSequence(urls, onDone) {
+  if (parabolaAudio) { try { parabolaAudio.pause(); } catch (e) {} parabolaAudio = null; }
+  var i = 0;
+  parabolaAudio = new Audio(urls[0]);
+  parabolaAudio.onended = function () {
+    i++;
+    if (i < urls.length) { parabolaAudio.src = urls[i]; parabolaAudio.play().catch(function () {}); }
+    else { parabolaAudio = null; if (onDone) onDone(); }
+  };
+  parabolaAudio.onerror = function () {
+    i++;
+    if (i < urls.length) { parabolaAudio.src = urls[i]; parabolaAudio.play().catch(function () {}); }
+    else { parabolaAudio = null; if (onDone) onDone(); }
+  };
+  parabolaAudio.play().catch(function () { parabolaAudio = null; if (onDone) onDone(); });
+}
+
+/* Genera la voz en vivo de un texto y la reproduce (para ecos) */
+async function playLiveVoice(text, btn) {
+  btn.disabled = true;
+  var label = btn.querySelector("span") || btn;
+  var orig = label.textContent;
+  try {
+    label.textContent = "Preparing my voice…";
+    var urls = await prepareParabolaVoice(text);
+    label.textContent = "Playing…";
+    playUrlSequence(urls, function () { label.textContent = orig; btn.disabled = false; });
+  } catch (e) {
+    label.textContent = orig;
+    btn.disabled = false;
+  }
+}
+
+function wireLiveVoiceButton(row, text) {
+  var btn = row.querySelector(".live-voice-btn");
+  if (btn) btn.addEventListener("click", function () { playLiveVoice(text, btn); });
+}
+
+/* La historia sale como nota de voz nativa: un solo audio, listo antes de aparecer. */
+function showParabolaBubble(parabola, audioUrl) {
+  var playerHtml = audioUrl
+    ? '<br><audio class="voice-note" controls preload="auto" src="' + audioUrl + '"></audio><br><button class="retry-btn share-audio-btn"><span>Share</span></button>'
+    : '<br><button class="retry-btn" id="play-parabola"><span>Hear my story</span></button>';
+  var row = addBubble(
+    escapeHtml("This story is for you.") + "<br><br>" + escapeHtml(parabola),
+    "in",
+    playerHtml
+  );
+  if (audioUrl) wireShareButton(row, audioUrl);
+  return row;
+}
+
+/* Compartir/guardar el audio de una historia: si el navegador soporta
+   compartir archivos (Web Share Level 2), abre el sheet nativo para mandarla
+   por WhatsApp, guardarla en archivos, etc. Si no, descarga directa; en iOS
+   el audio se abre y se guarda desde el share sheet. Nunca rompe la UI. */
+function shareParabolaAudio(blobUrl, fileName, btn) {
+  fileName = fileName || "tata-story.mp3";
+  var label = btn ? (btn.querySelector("span") || btn) : null;
+  var orig = label ? label.textContent : null;
+  function done() {
+    try {
+      if (label) label.textContent = orig;
+      if (btn) btn.disabled = false;
+    } catch (e) {}
+  }
+  function downloadFallback(fromCancel) {
+    try {
+      var a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      if (!fromCancel) logEvento("compartir_audio", { via: "descarga" });
+    } catch (e) {}
+    done();
+  }
+  try {
+    if (label) label.textContent = "Preparing…";
+    if (btn) btn.disabled = true;
+    fetch(blobUrl).then(function (res) { return res.blob(); }).then(function (blob) {
+      var file = null;
+      try { file = new File([blob], fileName, { type: blob.type || "audio/mpeg" }); } catch (e) {}
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          navigator.share({
+            files: [file],
+            title: "My Tata story",
+            text: "Listen to it on Tata: https://soytata.xyz/en",
+            url: "https://soytata.xyz/en"
+          }).then(
+            function () { logEvento("compartir_audio", { via: "share" }); done(); },
+            function () { downloadFallback(true); }
+          );
+        } catch (e) { downloadFallback(false); }
+      } else {
+        downloadFallback(false);
+      }
+    }).catch(function () { downloadFallback(false); });
+  } catch (e) { downloadFallback(false); }
+}
+
+function wireShareButton(row, blobUrl) {
+  var btn = row.querySelector(".share-audio-btn");
+  if (btn) btn.addEventListener("click", function () { shareParabolaAudio(blobUrl, "tata-story.mp3", btn); });
+}
+
+let desahogoMode = false;
+
+/* Tata es una abuelita sabia, cariñosa y emotiva: nada de guion fijo, todo respira y varía. */
+function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+/* Elige sin repetir la última: Tata nunca suena a guion fijo. */
+var _lastPick = {};
+function pickFresh(a, key) {
+  if (!a || a.length < 2) return pick(a);
+  var last = _lastPick[key], s, guard = 0;
+  do { s = pick(a); guard++; } while (s === last && guard < 10);
+  _lastPick[key] = s;
+  return s;
+}
+
+/* Términos cariñosos venezolanos: siempre neutrales, nunca el mismo dos veces seguidas. */
+function tratoMijo() {
+  // Sin adivinar género por el nombre: siempre cariño neutral.
+  return pick(["sweetheart", "honey", "dear"]);
+}
+/* Reemplaza "mijo" por el trato correcto. Insensible a mayúsculas ("Mijo" al inicio). */
+function decirMijo(s) {
+  return String(s).replace(/mijo/gi, function (m) {
+    var t = tratoMijo();
+    return m.charAt(0) === m.charAt(0).toUpperCase() ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+  });
+}
+var ENDEARMENTS_BASE = ["sweetheart", "honey", "dear"];
+function endear() {
+  return pick(ENDEARMENTS_BASE.slice());
+}
+
+var PRESENTACIONES = [
+  "I'm more than someone who gives advice: I come from the future and the past, and I can step into any area of your life you'd like to work on.",
+  "I'm more than a storyteller: I come from the future and the past, and I can step into any area of your life you'd like to work on."
+];
+var CIERRE_CUENTOS = [
+  "I can keep telling you stories, but I can also get to work for you on whatever you need.",
+  "I can keep telling you stories, but I can also roll up my sleeves and work for you on what you need."
+];
+var CIERRE_BETA = [
+  "If you'd like, send me a message on WhatsApp and we'll begin. We're in beta, and much more is on the way.",
+  "If you'd like, write to me on WhatsApp and we'll begin. We're in beta, but more is coming."
+];
+/* Elegir el tipo de cuento: venezolana o de las de para siempre. Frases variables, y si ya contó una, ofrece la otra. */
+var ELIGE_TIPO_NEUTRO = [
+  "Would you like a story with Venezuelan flavor, or one of the timeless ones?",
+  "Shall I tell you a story with Venezuelan flavor, or one of those that last forever?",
+  "What are you in the mood for: a story with Venezuelan flavor, or one of the timeless ones?"
+];
+var ELIGE_TIPO_VEN = [
+  "I already told you one of the timeless ones \u2014 would you like a Venezuelan one?",
+  "Since I already told you a timeless one, are you in the mood for a Venezuelan story?"
+];
+var ELIGE_TIPO_SIEMPRE = [
+  "I already told you a Venezuelan one \u2014 would you like one of the timeless ones?",
+  "Since I already told you a Venezuelan one, shall I tell you one of the timeless ones?"
+];
+var CIERRE_DESAHOGO = [
+  "Or we can stay here so you can get things off your chest.",
+  "Or we can stay here talking, so you can unburden yourself in peace."
+];
+var ESPERAME = [
+  "OK, wait for me a moment, I'm preparing your little surprise.",
+  "Give me a moment, sweetheart, I'm preparing your little surprise."
+];
+var OTRA_HISTORIA = [
+  "With pleasure, sweetheart. Wait for me a moment, I'm preparing it.",
+  "Of course, sweetheart. Give me a moment, I'm preparing it."
+];
+var NOTA_CORTA = [
+  "Sweetheart, that was very short. Don't you have more to tell me? Keep your finger pressed and tell me.",
+  "Oh sweetheart, that was very short. Don't you have more to tell me? Keep your finger down and tell me."
+];
+var NO_ESCUCHE = [
+  "Sweetheart, I couldn't hear you well. Can you repeat that?",
+  "Oh sweetheart, I didn't hear you well. Can you repeat it, please?"
+];
+var OFRECE_HISTORIA = [
+  "Sweetheart, with everything you're telling me, would you like me to tell you another story?",
+  "Sweetheart, with all you've told me, are you in the mood for another story?"
+];
+var TERCERA_HISTORIA = [
+  "And that was the tenth, sweetheart. I'm out of stories for now, but write to me on WhatsApp and we'll continue.",
+  "Sweetheart, that's ten stories already. Ask me for the next one on WhatsApp."
+];
+function showClosingSequence(count) {
+  count = count || 1;
+  var firstName = cleanFirstName(answers.nombre) || "sweetheart";
+  var presentacion = PRESENTACIONES[Math.floor(Math.random() * PRESENTACIONES.length)];
+  if (count >= 10) {
+    brotherSaySeq([
+      { text: decirMijo(pick(TERCERA_HISTORIA)), audio: null }
+    ], enableDesahogo);
+    return;
+  }
+  if (count === 2) {
+    brotherSaySeq([
+      { text: "There's another one for you, " + firstName + ". " + pick(["If you'd like one more, ask me, or we can stay here talking.", "If you're in the mood for one more, ask me, or we keep talking here."]), audio: null }
+    ], enableDesahogo);
+    return;
+  }
+  brotherSaySeq([
+    { text: firstName + ", but everything has a solution \u2014 that's what I came to help you with. " + presentacion, audio: null },
+    { text: pick(CIERRE_CUENTOS), audio: null },
+    { text: pick(CIERRE_BETA), audio: null },
+    { text: pick(CIERRE_DESAHOGO), audio: null }
+  ], enableDesahogo);
+}
+
+function enableDesahogo() {
+  desahogoMode = true;
+  waitingInput = true;
+  setInputEnabled(true);
+  inputEl.placeholder = "Write to me whatever you'd like";
+  inputEl.focus();
+}
+
+/* Historias ya contadas (máximo 3 por persona) */
+function getParabolas() {
+  var mem = loadMemory();
+  if (mem.parabolas && mem.parabolas.length) return mem.parabolas;
+  if (mem.parabola) return [mem.parabola];
+  return [];
+}
+function getTipos() {
+  var mem = loadMemory();
+  return mem.tipos || [];
+}
+
+/* Ofrece elegir el tipo de cuento: venezolana o de las de para siempre.
+   Si ya contó una, ofrece la otra para que no se aburra.
+   eligeTipoExtra: true = historia extra, false = primera historia. */
+var eligeTipoExtra = true;
+function ofrecerTipoParabola(isExtra) {
+  eligeTipoExtra = (isExtra !== false);
+  var tipos = getTipos();
+  var last = tipos[tipos.length - 1];
+  var msg;
+  if (last === "venezolana") msg = pickFresh(ELIGE_TIPO_SIEMPRE, "tipo-siempre");
+  else if (last === "para_siempre") msg = pickFresh(ELIGE_TIPO_VEN, "tipo-ven");
+  else msg = pickFresh(ELIGE_TIPO_NEUTRO, "tipo-neutro");
+  // Estado listo ANTES del tecleo: los botones responden aunque toquen durante la animación.
+  extraState = "elige-tipo";
+  waitingInput = true;
+  setInputEnabled(true);
+  inputEl.placeholder = "Choose: Venezuelan or timeless";
+  showTyping();
+  setTimeout(function () {
+    hideTyping();
+    var row = addBubble(
+      escapeHtml(decirMijo(msg)) +
+      '<br><button class="retry-btn qr-btn qr-ven">Venezuelan style</button> ' +
+      '<button class="retry-btn qr-btn qr-siempre">A timeless one</button>',
+      "in"
+    );
+    // Cableado por FILA (no por id): las burbujas viejas nunca se borran del DOM
+    // y con ids duplicados el listener caía en el botón viejo, dejando el nuevo muerto.
+    var bVen = row.querySelector(".qr-ven");
+    var bSiempre = row.querySelector(".qr-siempre");
+    if (bVen) bVen.addEventListener("click", function () { safeQuickReply("Venezuelan style"); });
+    if (bSiempre) bSiempre.addEventListener("click", function () { safeQuickReply("A timeless one"); });
+    // showTyping() deshabilita el input: hay que re-habilitarlo o la persona
+    // queda sin poder escribir (dead-end).
+    setInputEnabled(true);
+    waitingInput = true;
+    inputEl.focus();
+    // Red de seguridad anti dead-end: si en 90s no eligió, el input sigue
+    // habilitado para que pueda ESCRIBIR su elección. Nunca sin salida.
+    setTimeout(function () {
+      if (extraState === "elige-tipo") {
+        waitingInput = true;
+        setInputEnabled(true);
+        try { inputEl.focus(); } catch (e) {}
+      }
+    }, 90000);
+  }, typingDelay());
+}
+
+function logConversacion(userText, tataText) {
+  var mem = loadMemory();
+  var conv = mem.conversacion || [];
+  conv.push({ u: String(userText).slice(0, 2000), t: String(tataText).slice(0, 2000) });
+  saveMemory({ conversacion: conv.slice(-20) });
+}
+
+var OTRA_RE = /(another|one more|more)\s+(stor(y|ies)|parables?|tales?)|tell me (another|one more)|i want (another|one more)/i;
+
+/* "Repite mi historia": re-escucha la última parábola contada. Va ANTES que OTRA_RE:
+   repetir no genera nada nuevo y no consume el límite de historias. */
+var REPITE_RE = /(repeat|play it again|once more).*(story|parable|tale)|my (last|previous) (story|parable)/i;
+
+/* "La misma historia pero en venezolano": re-cuenta la ÚLTIMA parábola en el
+   estilo pedido. Va ANTES que REPITE_RE y OTRA_RE: si Tata promete, cumple;
+   no se va por el guion. */
+var RETELL_RE = /(same)\s+(story|parable|tale)|(story|parable|tale)[^.?!]{0,40}\b(same)\b|tell me the same|the same but/i;
+
+function pedirOtraParabola(autoTipo) {
+  var lista = getParabolas();
+  if (lista.length >= 10) {
+    waitingInput = false;
+    setInputEnabled(false);
+    brotherSay(decirMijo(pick(TERCERA_HISTORIA)), function () {}, null);
+    return;
+  }
+  if (autoTipo) {
+    // "Otra historia" = la versión que NO le contó: alterna el tipo sin preguntar.
+    var tipos = getTipos();
+    var last = tipos[tipos.length - 1];
+    if (!last) { pedirOtraParabola(false); return; }
+    var tipo = last === "venezolana" ? "para_siempre" : "venezolana";
+    var msg = last === "venezolana"
+      ? "All right, now I'll tell you one of the timeless ones."
+      : "All right, now I'll tell you one with Venezuelan flavor.";
+    waitingInput = false;
+    setInputEnabled(false);
+    eligeTipoExtra = true;
+    brotherSay(decirMijo(msg), function () {
+      extraState = null;
+      generateParabolaFlow(true, tipo);
+    }, null);
+    return;
+  }
+  waitingInput = false;
+  setInputEnabled(false);
+  brotherSay(decirMijo(pick(OTRA_HISTORIA)), function () {
+    ofrecerTipoParabola();
+  }, null);
+}
+
+/* Re-escucha la ÚLTIMA parábola contada, con su voz lista (mismo patrón del eco:
+   la burbuja sale solo cuando el audio está preparado). No genera nada nuevo,
+   no consume el límite de 10 historias. */
+function repetirUltimaHistoria(userText) {
+  var mem = loadMemory();
+  var lista = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
+  var firstName = cleanFirstName(mem.nombre) || "sweetheart";
+  waitingInput = false;
+  setInputEnabled(false);
+  if (!lista.length) {
+    var none = "I haven't told you any story yet, " + firstName + ". Shall we begin?";
+    logConversacion(userText, none);
+    addBubble(escapeHtml(none), "in");
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    return;
+  }
+  showTyping();
+  var last = lista[lista.length - 1];
+  var intro = "This was your last story, " + firstName + ".";
+  logEvento("repite_historia", {});
+  prepareParabolaVoice(last).then(function (urls) {
+    hideTyping();
+    logConversacion(userText, intro);
+    var row = addBubble(
+      escapeHtml(intro) + "<br><br>" + escapeHtml(last),
+      "in",
+      '<br><audio class="voice-note" controls preload="auto" src="' + urls[0] + '"></audio><br><button class="retry-btn share-audio-btn"><span>Share</span></button>'
+    );
+    wireShareButton(row, urls[0]);
+    afterDesahogo();
+  }).catch(function () {
+    // La voz no se pudo preparar: el texto sale con botón Escuchar que genera
+    // la voz y la reproduce DENTRO del gesto del tap (iOS-safe), igual que el eco.
+    hideTyping();
+    logConversacion(userText, intro);
+    var row = addBubble(
+      escapeHtml(intro) + "<br><br>" + escapeHtml(last),
+      "in",
+      '<br><button class="retry-btn live-voice-btn"><span>Listen</span></button>'
+    );
+    var btn = row.querySelector(".live-voice-btn");
+    if (btn) btn.addEventListener("click", function () {
+      btn.disabled = true;
+      var label = btn.querySelector("span") || btn;
+      label.textContent = "Preparing my voice…";
+      var a = new Audio();
+      a.play().catch(function () {}); // dentro del gesto: iOS desbloquea el elemento
+      prepareParabolaVoice(last).then(function (u2) {
+        a.src = u2[0];
+        a.play().catch(function () {});
+        label.textContent = "Playing…";
+        a.onended = function () { label.textContent = "Listen"; btn.disabled = false; };
+        a.onerror = function () { label.textContent = "Listen"; btn.disabled = false; };
+      }).catch(function () {
+        label.textContent = "Listen";
+        btn.disabled = false;
+      });
+    });
+    afterDesahogo();
+  });
+}
+
+/* Re-cuenta la ÚLTIMA parábola en el estilo pedido ("la misma historia pero en
+   venezolano"). Usa tata-parabola en modo retell: misma historia, otro ropaje.
+   Se guarda como entrada nueva con su tipo y NO consume el límite de 10. */
+function retellParabola(userText) {
+  var mem = loadMemory();
+  var lista = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
+  var firstName = cleanFirstName(mem.nombre) || "sweetheart";
+  extraState = null;
+  waitingInput = false;
+  setInputEnabled(false);
+  if (!lista.length) {
+    var none = "I haven't told you any story yet, " + firstName + ". Shall we start with one?";
+    logConversacion(userText, none);
+    addBubble(escapeHtml(none), "in");
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    return;
+  }
+  var targetTipo = /venezuelan/i.test(userText) ? "venezolana"
+    : /timeless|forever/i.test(userText) ? "para_siempre"
+    : (function () { var ts = getTipos(); var l = ts[ts.length - 1]; return l === "venezolana" ? "para_siempre" : "venezolana"; })();
+  var last = lista[lista.length - 1];
+  var tipoLabel = targetTipo === "venezolana" ? "with Venezuelan flavor" : "one of the timeless ones";
+  var intro = "All right, " + firstName + ", your same story, now " + tipoLabel + ".";
+  var genId = ++parabolaGenSeq;
+  var statusRow = addBubble('<span class="status-text">' + escapeHtml("Give me a moment, I'm telling your story again...") + "</span>", "in");
+  parabolaGen = { id: genId, since: Date.now(), statusRow: statusRow, retry: function () { retellParabola(userText); } };
+  tataRetellParabola(mem.nombre, last, targetTipo).then(function (p) {
+    if (!parabolaGen || parabolaGen.id !== genId) return; // reintentado desde otro lado
+    deliverParabola(p, function (urls) {
+      if (parabolaGen && parabolaGen.id !== genId) parabolaGen = null;
+      var l2 = getParabolas();
+      l2.push(p);
+      l2 = l2.slice(-10);
+      var t2 = getTipos();
+      t2.push(targetTipo);
+      t2 = t2.slice(-10);
+      saveMemory({ parabolas: l2, tipos: t2, parabola: p, parabolaAt: Date.now() });
+      logEvento("retell", { tipo: targetTipo });
+      logConversacion(userText, intro);
+      var row = addBubble(
+        escapeHtml(intro) + "<br><br>" + escapeHtml(p),
+        "in",
+        '<br><audio class="voice-note" controls preload="auto" src="' + urls[0] + '"></audio><br><button class="retry-btn share-audio-btn"><span>Share</span></button>'
+      );
+      wireShareButton(row, urls[0]);
+      afterDesahogo();
+    }, statusRow, function (done, total) {
+      setStatusText(statusRow, "Giving it my voice... (" + done + " of " + total + ")");
+    }, genId);
+  }).catch(function () {
+    if (!parabolaGen || parabolaGen.id !== genId) return;
+    parabolaGen = null;
+    statusRow.remove();
+    var row = addBubble(
+      "I had trouble telling your story again. Shall we try?",
+      "in",
+      '<br><button class="retry-btn retry-retell-btn">Try again</button>'
+    );
+    logEvento("error_generacion", { donde: "retell" });
+    // La persona nunca queda sin poder hablar: el input sigue habilitado.
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    var bRetry = row.querySelector(".retry-retell-btn");
+    if (bRetry) bRetry.addEventListener("click", function () {
+      row.remove();
+      retellParabola(userText);
+    });
+  });
+}
+
+function buildParabolaPayload(isExtra, tipo) {
+  var mem = loadMemory();
+  var conv = (mem.conversacion || []).map(function (m) { return "Person: " + m.u + "\nTata: " + m.t; }).join("\n");
+  var pesa = answers.que_pesa + (answers.que_extra ? "\n\nSomething else they told me: " + answers.que_extra : "");
+  if (conv) pesa += "\n\nLater conversation with the person: " + conv;
+  if (isExtra) {
+    var anteriores = getParabolas();
+    if (anteriores.length) pesa += "\n\nStories you ALREADY told them (tell a DIFFERENT one: another knot, other characters, another twist):\n" + anteriores.join("\n---\n");
+  }
+  return { nombre: answers.nombre, que_pesa: pesa, que_quiere: answers.que_quiere, que_voz: answers.que_voz, tipo: tipo || "" };
+}
+
+/* Si la persona se abrió bastante, la historia va a ser larga: se le avisa con variación. */
+var PENSANDO_LARGA = [
+  "Wait for me a second, I'm thinking carefully about what to tell you that will help your situation.",
+  "Give me a moment, I'm thinking about which story to tell you that is truly for you.",
+  "Wait there a moment, I'm figuring out what to tell you that will truly serve you."
+];
+
+/* El usuario elige el tipo de cuento: venezolana o de las de para siempre. */
+function handleEligeTipo(text) {
+  // Si pide la misma historia en otro estilo, se hace eso (más inteligente
+  // que tratarlo como una simple elección de tipo).
+  if (typeof RETELL_RE !== "undefined" && RETELL_RE.test(text)) { extraState = null; retellParabola(text); return; }
+  var tipo = null;
+  if (/venezuelan/i.test(text)) tipo = "venezolana";
+  else if (/timeless|forever|classic/i.test(text)) tipo = "para_siempre";
+  if (!tipo) {
+    // Si no fue claro, lo contrario de la última para no repetir.
+    var ts = getTipos();
+    var l = ts[ts.length - 1];
+    tipo = l === "venezolana" ? "para_siempre" : "venezolana";
+  }
+  extraState = null;
+  waitingInput = false;
+  setInputEnabled(false);
+  generateParabolaFlow(eligeTipoExtra, tipo);
+}
+
+/* Si la persona da su número de WhatsApp, Tata lo anota y le confirma con variación. */
+var WHATSAPP_RE = /(\+?\d[\d\s.\-()]{7,}\d)/;
+var WHATSAPP_ACK = [
+  "All right, I'll write to you as soon as I can.",
+  "All right, sweetheart, I'll write to you there as soon as I can.",
+  "Noted. I'll write to you as soon as I can."
+];
+function saveWhatsappBestEffort(tel) {
+  saveMemory({ whatsapp: tel });
+  var payload = { nombre: answers.nombre || "", que_pesa: "WHATSAPP: " + tel, que_quiere: "", que_voz: "" };
+  fetchTimeout(SUPABASE_URL + "/rest/v1/tata_onboarding", {
+    method: "POST",
+    headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json", "Prefer": "return=minimal" },
+    body: JSON.stringify(payload)
+  }).catch(function () {});
+}
+
+function handleDesahogo(text) {
+  if (RETELL_RE.test(text)) { retellParabola(text); return; }
+  if (REPITE_RE.test(text)) { repetirUltimaHistoria(text); return; }
+  if (OTRA_RE.test(text)) { pedirOtraParabola(true); return; }
+  var telMatch = String(text).match(WHATSAPP_RE);
+  if (telMatch) {
+    var tel = telMatch[1].replace(/[^\d+]/g, "");
+    waitingInput = false;
+    setInputEnabled(false);
+    showTyping();
+    setTimeout(function () {
+      hideTyping();
+      var ack = pick(WHATSAPP_ACK);
+      saveWhatsappBestEffort(tel);
+      logConversacion(text, ack);
+      addBubble(escapeHtml(ack), "in");
+      waitingInput = true;
+      setInputEnabled(true);
+      inputEl.focus();
+    }, typingDelay());
+    return;
+  }
+  waitingInput = false;
+  setInputEnabled(false);
+  showTyping();
+  logEvento("desahogo_msg", {});
+  // En el desahogo responde a lo NUEVO: contexto = conversación reciente, no todo de nuevo.
+  var mem = loadMemory();
+  var conv = (mem.conversacion || []).slice(-6).map(function (m) { return "Person: " + m.u + "\nTata: " + m.t; }).join("\n");
+  var ctx = "You're still talking after their story. DON'T summarize everything they told you before; respond ONLY to their last message, warmly, in 1-2 specific lines. Use their name if it sounds natural. Don't open with pet names or formulas; every answer sounds different, like a real conversation, not a script." +
+    (conv ? "\nThe last things you talked about:\n" + conv : "");
+    tataEco("ack", "", text, ctx).then(function (eco) {
+    logConversacion(text, eco);
+    // El texto NUNCA sale sin su voz lista: se prepara primero, la burbuja sale después.
+    prepareParabolaVoice(eco).then(function (urls) {
+      hideTyping();
+      addBubble(
+        escapeHtml(eco),
+        "in",
+        '<br><audio class="voice-note" controls preload="auto" src="' + urls[0] + '"></audio>'
+      );
+      afterDesahogo();
+    }).catch(function () {
+      // La voz no se pudo preparar: el texto sale con botón Escuchar que
+      // genera la voz y la reproduce DENTRO del gesto del tap (iOS-safe).
+      hideTyping();
+      var row = addBubble(
+        escapeHtml(eco),
+        "in",
+        '<br><button class="retry-btn live-voice-btn"><span>Listen</span></button>'
+      );
+      var btn = row.querySelector(".live-voice-btn");
+      if (btn) btn.addEventListener("click", function () {
+        btn.disabled = true;
+        var label = btn.querySelector("span") || btn;
+        label.textContent = "Preparing my voice…";
+        var a = new Audio();
+        a.play().catch(function () {}); // dentro del gesto: iOS desbloquea el elemento
+        prepareParabolaVoice(eco).then(function (u2) {
+          a.src = u2[0];
+          a.play().catch(function () {});
+          label.textContent = "Playing…";
+          a.onended = function () { label.textContent = "Listen"; btn.disabled = false; };
+          a.onerror = function () { label.textContent = "Listen"; btn.disabled = false; };
+        }).catch(function () {
+          label.textContent = "Listen";
+          btn.disabled = false;
+        });
+      });
+      afterDesahogo();
+    });
+  }).catch(function () {
+     
+    hideTyping();
+    logConversacion(text, "I'm listening, sweetheart. Go on, I'm here.");
+    addBubble("I'm listening, sweetheart. Go on, I'm here.");
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+  });
+}
+
+/* Continuación del desahogo tras mostrar el eco: ofrece otra parábola
+   tras 2 intercambios (una vez por historia) y re-habilita el input. */
+function afterDesahogo() {
+  var mem2 = loadMemory();
+  var n = (mem2.desahogoCount || 0) + 1;
+  var lista = getParabolas();
+  if (n >= 2 && lista.length < 10 && !mem2.offeredExtra) {
+    saveMemory({ desahogoCount: 0, offeredExtra: true });
+    setTimeout(function () {
+      showTyping();
+      setTimeout(function () {
+        hideTyping();
+        var row = addBubble(
+          escapeHtml(decirMijo(pick(OFRECE_HISTORIA))) +
+          '<br><button class="retry-btn qr-btn qr-si-otra">Yes</button> ' +
+          '<button class="retry-btn qr-btn qr-otra">Tell me another</button>',
+          "in");
+        // Cableado por fila: con ids duplicados (la oferta sale tras cada historia)
+        // el listener caía en botones viejos ya deshabilitados.
+        var bSiOtra = row.querySelector(".qr-si-otra");
+        var bOtra = row.querySelector(".qr-otra");
+        if (bSiOtra) bSiOtra.addEventListener("click", function () { safeQuickReply("yes"); });
+        if (bOtra) bOtra.addEventListener("click", function () { safeQuickReply("tell me another story"); });
+        extraState = "ofrece-historia";
+        waitingInput = true;
+        setInputEnabled(true);
+        inputEl.focus();
+      }, typingDelay());
+    }, 1200);
+  } else {
+    saveMemory({ desahogoCount: n });
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+  }
+}
+ 
+
+/* Prepara la voz completa de la parábola, con reintentos por fragmento.
+   Si no se logra, falla: el texto NUNCA se muestra sin su voz lista. */
+async function prepareParabolaVoice(p, onProgress) {
+  var parts = splitParabola(p);
+  var blobs = [];
+  for (var i = 0; i < parts.length; i++) {
+    if (onProgress) { try { onProgress(i, parts.length); } catch (e) {} }
+    var b = null;
+    for (var att = 0; att < 3 && !b; att++) {
+      try { b = await tataTtsBlob(parts[i]); } catch (e) { b = null; }
+    }
+    if (!b) throw new Error("voz no lista");
+    blobs.push(b);
+  }
+  if (onProgress) { try { onProgress(parts.length, parts.length); } catch (e) {} }
+  // Un solo audio: los fragmentos MP3 se unen y suenan sin cortes ni pausas raras.
+  return [URL.createObjectURL(new Blob(blobs, { type: "audio/mpeg" }))];
+}
+
+/* Avisos mientras se prepara la historia: la gente se desespera si no sabe que tarda un poquito. */
+function setStatusText(row, text) {
+  var s = row.querySelector(".status-text");
+  if (s) { s.textContent = text; scrollDown(); }
+}
+
+/* Entrega la parábola: texto y voz salen JUNTOS. Si la voz no está lista, no sale el texto. */
+function deliverParabola(p, onReady, statusRow, onProgress, genId) {
+  if (statusRow) setStatusText(statusRow, "It's written. Now I'm giving it my voice, almost there...");
+  else showTyping();
+  setInputEnabled(false);
+  waitingInput = false;
+  prepareParabolaVoice(p, function (done, total) {
+    if (parabolaGen) parabolaGen.lastProgress = Date.now();
+    if (onProgress) onProgress(done, total);
+  }).then(function (urls) {
+    hideTyping();
+    if (statusRow) statusRow.remove();
+    parabolaUrls = urls;
+    onReady(urls);
+  }).catch(function () {
+    hideTyping();
+    if (genId && parabolaGen && parabolaGen.id === genId) parabolaGen = null;
+    if (statusRow) statusRow.remove();
+    var row = addBubble(
+      "I had trouble giving your story my voice. Shall we try again?",
+      "in",
+      '<br><button class="retry-btn retry-delivery-btn">Try again</button>'
+    );
+    logEvento("error_generacion", { donde: "voz" });
+    // La persona nunca queda sin poder hablar: el input sigue habilitado.
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    var bRetryDel = row.querySelector(".retry-delivery-btn");
+    if (bRetryDel) bRetryDel.addEventListener("click", function () {
+      row.remove();
+      deliverParabola(p, onReady);
+    });
+  });
+}
+
+/* Si iOS congela la pestaña en segundo plano, la promesa de la historia puede no
+   resolverse nunca: al volver, si sigue pendiente, se ofrece reintentar. */
+var parabolaGen = null; // { id, since, isExtra, tipo, statusRow }
+var parabolaGenSeq = 0;
+document.addEventListener("visibilitychange", function () {
+  if (document.hidden || !parabolaGen) return;
+  var lastActive = parabolaGen.lastProgress || parabolaGen.since;
+  if (Date.now() - lastActive < 45000) return;
+  var pp = parabolaGen;
+  parabolaGen = null; // la promesa vieja queda huérfana y se ignora al resolver
+  if (pp.statusRow) pp.statusRow.remove();
+  setInputEnabled(true);
+  waitingInput = true;
+  var row = addBubble(
+    "I got stuck thinking about your story. Shall we try again?",
+    "in",
+    '<br><button class="retry-btn retry-stuck-btn">Try again</button>'
+  );
+  var bRetryStuck = row.querySelector(".retry-stuck-btn");
+  if (bRetryStuck) bRetryStuck.addEventListener("click", function () {
+    row.remove();
+    if (pp.retry) pp.retry();
+    else generateParabolaFlow(pp.isExtra, pp.tipo);
+  });
+});
+
+/* Un solo disparo por onboarding: genera, guarda en memoria y la muestra */
+function generateParabolaFlow(isExtra, tipo) {
+  setInputEnabled(false);
+  waitingInput = false;
+  var genId = ++parabolaGenSeq;
+  var payload = buildParabolaPayload(isExtra, tipo);
+  // Si contó bastante, la historia sale larga: se le avisa (con variación, nunca igual).
+  var cuantoConto = ((answers.que_pesa || "") + (answers.que_quiere || "") + (answers.que_voz || "") + (answers.que_extra || "")).length;
+  var statusText = cuantoConto > 500
+    ? pickFresh(PENSANDO_LARGA, "pensando")
+    : "I'm writing your story just for you, give me a moment...";
+  var statusRow = addBubble('<span class="status-text">' + escapeHtml(statusText) + "</span>", "in");
+  parabolaGen = { id: genId, since: Date.now(), isExtra: isExtra, tipo: tipo, statusRow: statusRow, retry: function () { generateParabolaFlow(isExtra, tipo); } };
+  tataParabola(payload).then(function (p) {
+    if (!parabolaGen || parabolaGen.id !== genId) return; // reintentado desde otro lado
+    deliverParabola(p, function (urls) {
+      if (parabolaGen && parabolaGen.id === genId) parabolaGen = null;
+      var lista = getParabolas();
+      lista.push(p);
+      lista = lista.slice(-10);
+      var tipos = getTipos();
+      tipos.push(tipo || "");
+      tipos = tipos.slice(-10);
+      saveMemory({ parabolas: lista, tipos: tipos, parabola: p, parabolaAt: Date.now(), desahogoCount: 0, offeredExtra: false });
+      logEvento("parabola_generada", { tipo: tipo || "" });
+      showParabolaBubble(p, urls && urls[0]);
+      setTimeout(function () { showClosingSequence(lista.length); }, 1200);
+    }, statusRow, function (done, total) {
+      setStatusText(statusRow, "Giving it my voice... (" + done + " of " + total + ")");
+    }, genId);
+  }).catch(function () {
+    if (!parabolaGen || parabolaGen.id !== genId) return;
+    parabolaGen = null;
+    statusRow.remove();
+    var row = addBubble(
+      "I had trouble writing your story. Shall we try again?",
+      "in",
+      '<br><button class="retry-btn retry-parabola-btn">Try again</button>'
+    );
+    logEvento("error_generacion", { donde: "parabola" });
+    // La persona nunca queda sin poder hablar: el input sigue habilitado.
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+    var bRetryPar = row.querySelector(".retry-parabola-btn");
+    if (bRetryPar) bRetryPar.addEventListener("click", function () {
+      row.remove();
+      generateParabolaFlow(isExtra, tipo);
+    });
+  });
+}
+
+/* ---------- Eco de Tata: acknowledgment empático tras cada respuesta ---------- */
+async function tataEco(modo, pregunta, ultima, ctxOverride) {
+  var ctx = ctxOverride || ("What is weighing on them: " + (answers.que_pesa || "(didn't say)") +
+    "\nWhat they really want: " + (answers.que_quiere || "(didn't say)") +
+    "\nWhat voice tells them they can't: " + (answers.que_voz || "(didn't say)"));
+  const res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-eco", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ modo: modo, nombre: answers.nombre, pregunta: pregunta || "", ultima: ultima || "", contexto: ctx, device_id: getDeviceId(), lang: "en" })
+  });
+  if (!res.ok) throw new Error("eco " + res.status);
+  var data = await res.json();
+  var t = data && data.texto ? String(data.texto).trim() : "";
+  if (!t) throw new Error("eco vacío");
+  return t;
+}
+
+let extraState = null; // "pregunta-extra" | "pregunta-extra2"
+var NO_RE = /^\s*(no|nope|nah|not really|i'm good|i'm fine|done|no,?\s*thanks)/i;
+var YES_SHORT_RE = /^\s*(yess*|yeah|yep|sure|of course|please|ok|okay|absolutely)\.?!?\s*$/i;
+
+function proceedToParable(withThanks) {
+  extraState = null;
+  finished = true;
+  setInputEnabled(false);
+  waitingInput = false;
+  inputEl.placeholder = "Conversation over";
+  var msg = withThanks
+    ? "Thank you for telling me that too, " + tratoMijo() + ". " + decirMijo(pick(ESPERAME))
+    : decirMijo(pick(ESPERAME));
+  brotherSay(msg, function () {
+    setInputEnabled(false);
+    waitingInput = false;
+    ofrecerTipoParabola(false);
+  }, null);
+}
+
+function handleExtraState(text) {
+  waitingInput = false;
+  setInputEnabled(false);
+  if (extraState === "pregunta-extra" && NO_RE.test(text)) {
+    proceedToParable(false);
+  } else if (extraState === "pregunta-extra" && YES_SHORT_RE.test(text)) {
+    extraState = "pregunta-extra2";
+    brotherSay("Tell me, I'm listening.", function () {}, null);
+  } else if (extraState === "ofrece-historia" && OTRA_RE.test(text)) {
+    // "Cuéntame otra": va directo a la versión que NO le contó (alterna el tipo).
+    extraState = null;
+    pedirOtraParabola(true);
+  } else if (extraState === "ofrece-historia" && /venezuelan/i.test(text)) {
+    // "Sí, venezolana": va directo sin preguntar de nuevo.
+    extraState = null;
+    eligeTipoExtra = true;
+    generateParabolaFlow(true, "venezolana");
+  } else if (extraState === "ofrece-historia" && /timeless/i.test(text)) {
+    extraState = null;
+    eligeTipoExtra = true;
+    generateParabolaFlow(true, "para_siempre");
+  } else if (extraState === "ofrece-historia" && YES_SHORT_RE.test(text)) {
+    extraState = null;
+    pedirOtraParabola(false);
+  } else if (extraState === "ofrece-historia" && NO_RE.test(text)) {
+    extraState = null;
+    brotherSay(decirMijo("That's all right, sweetheart. I'm still here for whatever you need."), function () {
+      waitingInput = true;
+      setInputEnabled(true);
+      inputEl.focus();
+    }, null);
+  } else if (extraState === "ofrece-historia") {
+    // Respuesta ambigua: Tata responde con calidez, pero la oferta sigue en pie
+    // (no se limpia extraState: el próximo "siii" sí dispara la historia).
+    handleDesahogo(text);
+  } else if (extraState === "elige-tipo") {
+    handleEligeTipo(text);
+  } else {
+    answers.que_extra = ((answers.que_extra ? answers.que_extra + "\n" : "") + text).slice(0, 8000);
+    saveMemory({ que_extra: answers.que_extra });
+    proceedToParable(true);
+  }
+}
+
+function sayGreetingSeq(greeting, greetingAudioUrl) {
+  brotherSaySeq([
+    { text: greeting, audio: greetingAudioUrl },
+    { text: "I'm going to ask you questions that may be a little uncomfortable to answer.", audio: null },
+    { text: "But if you trust me, I promise it will be worth it.", audio: null }
+  ], function () {
+    addPrivacyChip();
+    setTimeout(function () { askQuestion(step); }, 700);
+  });
+}
+
+/* ---------- Ritmo humano: siempre 1-2s "tecleando" ---------- */
+function typingDelay() { return 1000 + Math.random() * 1000; }
+function typingDelaySlow() { return 2600 + Math.random() * 900; }
+
+function brotherSay(text, then, audioSrc, slow) {
+  showTyping();
+  setTimeout(function () {
+    hideTyping();
+    var row = addBubble((audioSrc ? PLAY_SVG : "") + escapeHtml(text), "in");
+    if (audioSrc) wirePlayButton(row, audioSrc);
+    setInputEnabled(true);
+    waitingInput = true;
+    if (then) then();
+  }, slow ? typingDelaySlow() : typingDelay());
+}
+
+/* Al volver: re-vocea la última historia guardada, con guardián y progreso. */
+function revoiceLastStory() {
+  var lista = getParabolas();
+  if (!lista.length) { startConversation(); return; }
+  var last = lista[lista.length - 1];
+  var genId = ++parabolaGenSeq;
+  var statusRow = addBubble('<span class="status-text">I\'m giving your story my voice, almost there...</span>', "in");
+  parabolaGen = { id: genId, since: Date.now(), statusRow: statusRow, retry: function () { revoiceLastStory(); } };
+  deliverParabola(last, function (urls) {
+    if (parabolaGen && parabolaGen.id === genId) parabolaGen = null;
+    showParabolaBubble(last, urls && urls[0]);
+    // El follow-up completo también al volver: las 4 burbujas (incluye lo del beta).
+    setTimeout(function () { showClosingSequence(lista.length); }, 1200);
+  }, statusRow, function (done, total) {
+    setStatusText(statusRow, "Giving it my voice... (" + done + " of " + total + ")");
+  }, genId);
+}
+
+/* Al volver: re-renderiza los últimos intercambios guardados para que la
+   conversación no se vea vacía. Solo texto, sin botones de voz. */
+function renderHistory() {
+  var mem = loadMemory();
+  var conv = mem.conversacion || [];
+  if (!conv.length) return;
+  conv.slice(-10).forEach(function (m) {
+    if (m.u) addBubble(escapeHtml(String(m.u)), "out");
+    if (m.t) addBubble(escapeHtml(String(m.t)), "in");
+  });
+}
+
+function startConversation() {
+  var mem = loadMemory();
+  if (!mem.nombre && !restoreAttempted) {
+    // Sin memoria local: puede ser un dispositivo conocido con los datos borrados.
+    // Se intenta restaurar del servidor y se sigue el flujo normal con lo que haya.
+    restoreFromServer(function () { startConversation(); });
+    return;
+  }
+  logEvento("page_open", {});
+  var firstName = cleanFirstName(mem.nombre) || "sweetheart";
+  // Continuidad genuina: los últimos intercambios vuelven a verse antes del saludo.
+  renderHistory();
+  var lista = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
+ 
+  if (lista.length) {
+    // Ya tiene su historia: la saluda, se la muestra y sigue aprendiendo de la persona.
+    var a0 = mem.answers || {};
+    answers.nombre = mem.nombre || "";
+    answers.que_pesa = a0.que_pesa || "";
+    answers.que_quiere = a0.que_quiere || "";
+    answers.que_voz = a0.que_voz || "";
+    answers.que_extra = a0.que_extra || "";
+    finished = true;
+    setInputEnabled(false);
+    brotherSay("Hello " + firstName + ", how good to see you again. Here is your latest story.", function () {
+      revoiceLastStory();
+    }, null);
+  } else if (mem.nombre && mem.finishedAt) {
+    // Terminó el onboarding pero la historia no se generó: la generamos ahora.
+    var a = mem.answers || {};
+    answers.nombre = mem.nombre;
+    answers.que_pesa = a.que_pesa || "";
+    answers.que_quiere = a.que_quiere || "";
+    answers.que_voz = a.que_voz || "";
+    answers.que_extra = a.que_extra || "";
+    finished = true;
+    setInputEnabled(false);
+    inputEl.placeholder = "Conversation over";
+    addBubble(escapeHtml("Hello " + firstName + ". Let's finish your story."), "in");
+    ofrecerTipoParabola(false);
+  } else if (mem.nombre) {
+    // La persona ya estuvo aquí: la saluda por su nombre y sigue con las preguntas.
+    answers.nombre = mem.nombre;
+    step = 1;
+    setInputEnabled(false);
+    brotherSay("Hello " + firstName + ", how good to see you again.", function () {
+      askQuestion(1);
+    }, null);
+  } else {
+    setInputEnabled(false);
+    brotherSay("Hello, what is your name?", null, null);
+  }
+}
+
+function brotherSaySeq(items, then) {
+  setInputEnabled(false);
+  waitingInput = false;
+  function next(i) {
+    if (i >= items.length) {
+      setInputEnabled(true);
+      waitingInput = true;
+      if (then) then();
+      return;
+    }
+    showTyping();
+    setTimeout(function () {
+      hideTyping();
+      var row = addBubble((items[i].audio ? PLAY_SVG : "") + escapeHtml(items[i].text), "in");
+      if (items[i].audio) wirePlayButton(row, items[i].audio);
+      setTimeout(function () { next(i + 1); }, 600);
+    }, typingDelay());
+  }
+  next(0);
+}
+
+var QUESTION_AUDIO = [null, null, null, null];
+/* Empujón cálido si no responde a una pregunta difícil: varía siempre, nunca la misma frase. */
+var NUDGES = [
+  "You can tell me as much as you want, but the more you tell me, the more I'll be able to help you.",
+  "Tell me as much as you feel like, sweetheart \u2014 the more you tell me, the better I can help you.",
+  "No rush, tell me up to wherever you want. The more you tell me, the more I can help you.",
+  "Take your time, sweetheart. The more you tell me, the more I'll be able to help you."
+];
+
+/* 4 segundos después de una pregunta difícil, si aún no respondió: empujón cálido con voz en vivo */
+function scheduleNudge() {
+  var s = step;
+  setTimeout(function () {
+    if (finished || !waitingInput || step !== s) return;
+    var nudge = decirMijo(pick(NUDGES));
+    showTyping();
+    setTimeout(function () {
+      tataTtsUrl(nudge).then(function (url) {
+        if (finished || step !== s) { hideTyping(); return; }
+        hideTyping();
+        var row = addBubble(PLAY_SVG + escapeHtml(nudge), "in");
+        wirePlayButton(row, url);
+        setInputEnabled(true);
+        waitingInput = true;
+      }).catch(function () {
+        if (finished || step !== s) { hideTyping(); return; }
+        hideTyping();
+        addBubble(escapeHtml(nudge), "in");
+        setInputEnabled(true);
+        waitingInput = true;
+      });
+    }, typingDelay());
+  }, 4000);
+}
+
+function askQuestion(i) {
+  var slow = (i === 1); // "¿Qué te pesa ahorita?" se escribe lento, deliberado
+  brotherSay(QUESTIONS[i], function () {
+    if (i === 1 || i === 3) scheduleNudge(); // preguntas difíciles
+  }, QUESTION_AUDIO[i], slow);
+}
+
+/* Si pregunta "¿ayudar con qué?": misterio, sin avanzar el paso */
+var HELP_Q_RE = /(help\w*\s+(with|me))|(what[^?!.]*help)|(how[^?!.]*help)/i;
+function answerHelpQuestion() {
+  waitingInput = false;
+  setInputEnabled(false);
+  showTyping();
+  setTimeout(function () {
+    hideTyping();
+    var row = addBubble(escapeHtml("You'll see soon enough."), "in");
+    setInputEnabled(true);
+    waitingInput = true;
+  }, typingDelay());
+}
+
+async function saveAnswers() {
+  const res = await fetchTimeout(SUPABASE_URL + "/rest/v1/tata_onboarding", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json",
+      "Prefer": "return=minimal"
+    },
+    body: JSON.stringify({
+      nombre: answers.nombre,
+      que_pesa: answers.que_pesa + (answers.que_extra ? "\n\nSomething else they told me: " + answers.que_extra : ""),
+      que_quiere: answers.que_quiere,
+      que_voz: answers.que_voz
+    })
+  });
+  if (!res.ok) throw new Error("Supabase respondió " + res.status);
+}
+
+function quickReply(text) {
+  if (!waitingInput) return;
+  // Desactiva los botones de respuesta rápida para no duplicar.
+  var btns = document.querySelectorAll(".qr-btn");
+  for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+  addBubble(escapeHtml(text), "out");
+  submitAnswer(text);
+}
+
+/* Los taps nunca dejan a la persona sin salida: si algo falla en el handler,
+   el input se re-habilita para que pueda escribir. */
+function safeQuickReply(text) {
+  try { quickReply(text); } catch (e) {
+    try { waitingInput = true; setInputEnabled(true); inputEl.focus(); } catch (_e) {}
+  }
+}
+
+/* Voz del resumen: se prepara en segundo plano en cuanto sale el texto,
+   para que "Escuchar" suene de inmediato cuando la toquen. */
+function wireResumenVoice(row, texto) {
+  var btn = row.querySelector(".live-voice-btn");
+  if (!btn) return;
+  btn.disabled = true;
+  var label = btn.querySelector("span") || btn;
+  label.textContent = "Preparing voice...";
+  prepareParabolaVoice(texto).then(function (urls) {
+    label.textContent = "Listen";
+    btn.disabled = false;
+    btn.addEventListener("click", function () {
+      label.textContent = "Playing...";
+      playUrlSequence(urls, function () { label.textContent = "Listen"; });
+    });
+  }).catch(function () {
+    // Si no se pudo preparar, el botón genera al tocar (como antes).
+    label.textContent = "Listen";
+    btn.disabled = false;
+    wireLiveVoiceButton(row, texto);
+  });
+}
+
+function showResumenStep(texto) {
+  hideTyping();
+  var row = addBubble(
+    escapeHtml(texto),
+    "in",
+    '<br><button class="retry-btn live-voice-btn"><span>Listen</span></button> <button class="retry-btn reset-memory-btn">Start over</button><br><button class="retry-btn qr-btn qr-si">Yes</button> <button class="retry-btn qr-btn qr-no">No</button>'
+  );
+  wireResumenVoice(row, texto);
+  var bReset = row.querySelector(".reset-memory-btn");
+  if (bReset) bReset.addEventListener("click", function () {
+    clearMemory();
+    location.reload();
+  });
+  var bSi = row.querySelector(".qr-si");
+  var bNo = row.querySelector(".qr-no");
+  if (bSi) bSi.addEventListener("click", function () { safeQuickReply("yes"); });
+  if (bNo) bNo.addEventListener("click", function () { safeQuickReply("no"); });
+  extraState = "pregunta-extra";
+  waitingInput = true;
+  setInputEnabled(true);
+  inputEl.placeholder = "Type a message";
+  inputEl.focus();
+}
+
+function finishConversation() {
+  logEvento("onboarding_fin", {});
+  showTyping();
+  saveAnswers().then(function () {
+    saveMemory({ answers: { nombre: answers.nombre, que_pesa: answers.que_pesa, que_quiere: answers.que_quiere, que_voz: answers.que_voz, que_extra: answers.que_extra }, finishedAt: Date.now() });
+    // Resumen empático de todo lo contado + pregunta si quiere agregar algo más.
+    tataEco("resumen", null, null).then(function (texto) {
+      showResumenStep(texto);
+    }).catch(function () {
+      // Si el eco falla, igual se hace la pregunta con un resumen genérico: nunca saltársela.
+      var firstName = cleanFirstName(answers.nombre) || "honey";
+      showResumenStep("Well, " + firstName + ", you've told me what's weighing on you, what you really want, and that voice telling you that you can't. Do you think you need to tell me anything more before I give you your little surprise?");
+    });
+  }).catch(function () {
+    hideTyping();
+    const row = addBubble(
+      "I had a connection problem and couldn't save your answers. Shall we try again?",
+      "in",
+      '<br><button class="retry-btn retry-save-btn">Try again</button>'
+    );
+    var bRetrySave = row.querySelector(".retry-save-btn");
+    if (bRetrySave) bRetrySave.addEventListener("click", function () {
+      this.disabled = true;
+      finishConversation();
+    });
+    setInputEnabled(false);
+  });
+}
+
+function submitAnswer(text) {
+  if (!waitingInput) return;
+  if (extraState) { handleExtraState(text); return; }
+  if (desahogoMode) { handleDesahogo(text); return; }
+  if (finished) return;
+  waitingInput = false;
+  setInputEnabled(false);
+  var key = answerKeys[step];
+  answers[key] = text;
+  step++;
+  if (step < QUESTIONS.length) {
+    if (step === 1) {
+      // Después del nombre: Tata lo saluda con SU VOZ, generada en vivo con su nombre.
+      saveMemory({ nombre: answers.nombre });
+      var firstName = cleanFirstName(answers.nombre) || "sweetheart";
+      var greeting = "Hello " + firstName + ", " + endear() + ".";
+      setTimeout(function () {
+        showTyping(); // teclea mientras se genera el audio
+        tataTtsUrl(greeting).then(function (url) {
+          hideTyping();
+          sayGreetingSeq(greeting, url);
+        }).catch(function () {
+          // Si la voz viva falla, el saludo sale como texto y el flujo sigue igual.
+          hideTyping();
+          sayGreetingSeq(greeting, null);
+        });
+      }, 350);
+    } else {
+      // Eco empático: Tata muestra que entendió antes de la siguiente pregunta.
+      // Nunca se salta: si el eco falla, reintenta una vez y si no, sale un respaldo cálido local.
+      var qAsked = QUESTIONS[step - 1], ansGiven = text;
+      setTimeout(function () {
+        showTyping();
+        function showEco(eco) {
+          hideTyping();
+          var row = addBubble(
+            escapeHtml(eco),
+            "in",
+            '<br><button class="retry-btn live-voice-btn"><span>Listen</span></button>'
+          );
+          wireLiveVoiceButton(row, eco);
+          setTimeout(function () { askQuestion(step); }, 700);
+        }
+        function ecoFallback() {
+          var fn = cleanFirstName(answers.nombre);
+          showEco("Oh" + (fn ? " " + fn : "") + ", " + endear() + ", what you're telling me is heavy. I'm listening, truly listening.");
+        }
+        tataEco("ack", qAsked, ansGiven).then(showEco).catch(function () {
+          tataEco("ack", qAsked, ansGiven).then(showEco).catch(ecoFallback);
+        });
+      }, 350);
+    }
+  } else {
+    setTimeout(finishConversation, 350);
+  }
+}
+
+function onSend() {
+  if (!waitingInput || (finished && !desahogoMode && !extraState)) return;
+  const text = inputEl.value.trim();
+  if (!text) return;
+  addBubble(escapeHtml(text), "out");
+  inputEl.value = "";
+  syncMicSend();
+  if (HELP_Q_RE.test(text)) { answerHelpQuestion(); return; }
+  submitAnswer(text);
+}
+
+/* ---------- Notas de voz del usuario ---------- */
+let mediaRecorder = null, audioChunks = [], recTimer = null, recSecs = 0, recStream = null, isRecording = false, recWanted = false;
+
+function fmtTime(s) { return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+
+function syncMicSend() {
+  var has = inputEl.value.trim().length > 0;
+  sendBtn.style.display = has ? "" : "none";
+  micBtn.style.display = has ? "none" : "";
+}
+
+async function startRecording() {
+  if (isRecording) return;
+  if (!waitingInput || (finished && !desahogoMode && !extraState)) return;
+  recWanted = true; // el dedo está pegado
+  var stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    recWanted = false;
+    addBubble("I couldn't access the microphone. Check the permission in your browser.", "in");
+    return;
+  }
+  // Si soltó el dedo mientras se pedía el micrófono (o salió el permiso),
+  // no arrancar: soltar la pista y no dejar nada corriendo.
+  if (!recWanted) {
+    stream.getTracks().forEach(function (t) { t.stop(); });
+    return;
+  }
+  recStream = stream;
+  audioChunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = function (e) { if (e.data.size) audioChunks.push(e.data); };
+  mediaRecorder.onstop = onRecordingStop;
+  mediaRecorder.start();
+  isRecording = true;
+  recSecs = 0;
+  recTime.textContent = "0:00";
+  inputEl.style.display = "none";
+  sendBtn.style.display = "none";
+  // Mientras el dedo está pegado, el botón se pone rojo: soltar envía.
+  micBtn.classList.add("recording");
+  micBtn.setAttribute("aria-label", "Recording, release to send");
+  recUi.classList.add("on");
+  recStop.style.display = "none";
+  recTimer = setInterval(function () { recSecs++; recTime.textContent = fmtTime(recSecs); }, 1000);
+}
+
+function stopRecording() {
+  recWanted = false; // el dedo se soltó: aunque el micrófono aún no arranque, no debe arrancar
+  if (!isRecording) return;
+  isRecording = false;
+  clearInterval(recTimer);
+  recUi.classList.remove("on");
+  micBtn.classList.remove("recording");
+  micBtn.setAttribute("aria-label", "Grabar nota de voz");
+  inputEl.style.display = "";
+  syncMicSend();
+  if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+  if (recStream) { recStream.getTracks().forEach(function (t) { t.stop(); }); recStream = null; }
+}
+
+async function uploadAudio(blob) {
+  var mime = blob.type || "audio/webm";
+  var ext = mime.indexOf("mp4") !== -1 ? "mp4" : (mime.indexOf("ogg") !== -1 ? "ogg" : "webm");
+  var id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + "." + ext;
+  var res = await fetchTimeout(SUPABASE_URL + "/storage/v1/object/tata-audios/" + id, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": mime
+    },
+    body: blob
+  });
+  if (!res.ok) throw new Error("upload " + res.status);
+  return SUPABASE_URL + "/storage/v1/object/public/tata-audios/" + id;
+}
+
+function addVoiceBubble(url, from) {
+  var row = document.createElement("div");
+  row.className = "msg-row " + from;
+  var wrap = document.createElement("div");
+  wrap.className = "bubble";
+  var a = document.createElement("audio");
+  a.className = "voice-note";
+  a.controls = true;
+  a.src = url;
+  a.preload = "metadata";
+  wrap.appendChild(a);
+  var t = document.createElement("span");
+  t.className = "msg-time";
+  t.innerHTML = now() + (from === "out" ? '<span class="checks">✓✓</span>' : "");
+  wrap.appendChild(t);
+  row.appendChild(wrap);
+  messagesEl.appendChild(row);
+  scrollDown();
+  return row;
+}
+
+async function transcribeAudio(blob) {
+  var form = new FormData();
+  form.append("file", blob, "nota." + (blob.type.indexOf("mp4") !== -1 ? "mp4" : "webm"));
+  form.append("lang", "en");
+  var res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-stt", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY
+    },
+    body: form
+  });
+  if (!res.ok) throw new Error("stt " + res.status);
+  var data = await res.json();
+  return (data && data.text ? String(data.text).trim() : "");
+}
+
+async function onRecordingStop() {
+  var blob = new Blob(audioChunks, { type: (mediaRecorder && mediaRecorder.mimeType) || "audio/webm" });
+  // Nota muy corta (menos de 5 segundos): no se sube, no se avanza, Tata invita a contar más.
+  if (!blob.size || recSecs < 5) {
+    waitingInput = true;
+    setInputEnabled(true);
+    if (blob.size) addBubble(decirMijo(pick(NOTA_CORTA)), "in");
+    return;
+  }
+  waitingInput = false;
+  setInputEnabled(false);
+  var upRow = addBubble("Uploading voice note…", "out");
+  try {
+    var url = await uploadAudio(blob);
+    upRow.remove();
+    var voiceRow = addVoiceBubble(url, "out");
+    var txRow = addBubble("Listening to your voice note…", "out");
+    var transcript = "";
+    try {
+      transcript = await transcribeAudio(blob);
+    } catch (e) { transcript = ""; }
+    txRow.remove();
+    // Si no se entendió nada, no se avanza: se queda en la misma pregunta.
+    if (!transcript) {
+      addBubble(decirMijo(pick(NO_ESCUCHE)), "in");
+      waitingInput = true;
+      setInputEnabled(true);
+      return;
+    }
+    waitingInput = true;
+    submitAnswer(transcript);
+  } catch (e) {
+    upRow.remove();
+    addBubble("I couldn't upload the voice note. Try again.", "in");
+    waitingInput = true;
+    setInputEnabled(true);
+  }
+}
+
+/* Push-to-talk de verdad: dedo pegado para grabar, soltar para enviar. */
+micBtn.addEventListener("touchstart", function (e) {
+  e.preventDefault();
+  startRecording();
+}, { passive: false });
+micBtn.addEventListener("touchend", function (e) {
+  e.preventDefault();
+  stopRecording();
+});
+micBtn.addEventListener("touchcancel", function () { stopRecording(); });
+micBtn.addEventListener("mousedown", function (e) {
+  if (e.button === 0) startRecording();
+});
+window.addEventListener("mouseup", function () { stopRecording(); });
+micBtn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+recStop.addEventListener("click", stopRecording);
+inputEl.addEventListener("input", syncMicSend);
+
+sendBtn.addEventListener("click", onSend);
+inputEl.addEventListener("keydown", function (e) {
+  if (e.key === "Enter") onSend();
+});
+
+startConversation();
+</script>
+</body>
+</html>
