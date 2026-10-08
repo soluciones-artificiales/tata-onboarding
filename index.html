@@ -776,55 +776,92 @@ function handleDesahogo(text) {
   // En el desahogo responde a lo NUEVO: contexto = conversación reciente, no todo de nuevo.
   var mem = loadMemory();
   var conv = (mem.conversacion || []).slice(-6).map(function (m) { return "Persona: " + m.u + "\nTata: " + m.t; }).join("\n");
-  var ctx = "Siguen conversando después de su historia. NO resumas todo lo que te contó antes; responde SOLO a su último mensaje, con calidez, en 1-2 líneas específicas. Usa su nombre si suena natural." +
+  var ctx = "Siguen conversando después de su historia. NO resumas todo lo que te contó antes; responde SOLO a su último mensaje, con calidez, en 1-2 líneas específicas. Usa su nombre si suena natural. No abras con cariños ni fórmulas; cada respuesta suena distinta, como una conversación real, no un guion." +
     (conv ? "\nLo último que hablaron:\n" + conv : "");
-  tataEco("ack", "", text, ctx).then(function (eco) {
-    hideTyping();
+    tataEco("ack", "", text, ctx).then(function (eco) {
     logConversacion(text, eco);
-    var row = addBubble(
-      escapeHtml(eco),
-      "in",
-      '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>'
-    );
-    wireLiveVoiceButton(row, eco);
-    // El desahogo lleva a otra parábola: tras 2 intercambios, Tata la ofrece (una vez por historia).
-    var mem2 = loadMemory();
-    var n = (mem2.desahogoCount || 0) + 1;
-    var lista = getParabolas();
-    if (n >= 2 && lista.length < 10 && !mem2.offeredExtra) {
-      saveMemory({ desahogoCount: 0, offeredExtra: true });
-      setTimeout(function () {
-        showTyping();
-        setTimeout(function () {
-          hideTyping();
-          var row = addBubble(
-            escapeHtml(decirMijo(pick(OFRECE_HISTORIA))) +
-            '<br><button class="retry-btn qr-btn" id="qr-si-otra">Sí</button> ' +
-            '<button class="retry-btn qr-btn" id="qr-otra">Cuéntame otra</button>',
-            "in");
-          document.getElementById("qr-si-otra").addEventListener("click", function () { quickReply("sí"); });
-          document.getElementById("qr-otra").addEventListener("click", function () { quickReply("cuéntame otra historia"); });
-          extraState = "ofrece-historia";
-          waitingInput = true;
-          setInputEnabled(true);
-          inputEl.focus();
-        }, typingDelay());
-      }, 1200);
-    } else {
-      saveMemory({ desahogoCount: n });
-      waitingInput = true;
-      setInputEnabled(true);
-      inputEl.focus();
-    }
+    // El texto NUNCA sale sin su voz lista: se prepara primero, la burbuja sale después.
+    prepareParabolaVoice(eco).then(function (urls) {
+      hideTyping();
+      addBubble(
+        escapeHtml(eco),
+        "in",
+        '<br><audio class="voice-note" controls preload="auto" src="' + urls[0] + '"></audio>'
+      );
+      afterDesahogo();
+    }).catch(function () {
+      // La voz no se pudo preparar: el texto sale con botón Escuchar que
+      // genera la voz y la reproduce DENTRO del gesto del tap (iOS-safe).
+      hideTyping();
+      var row = addBubble(
+        escapeHtml(eco),
+        "in",
+        '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>'
+      );
+      var btn = row.querySelector(".live-voice-btn");
+      if (btn) btn.addEventListener("click", function () {
+        btn.disabled = true;
+        var label = btn.querySelector("span") || btn;
+        label.textContent = "Preparando mi voz…";
+        var a = new Audio();
+        a.play().catch(function () {}); // dentro del gesto: iOS desbloquea el elemento
+        prepareParabolaVoice(eco).then(function (u2) {
+          a.src = u2[0];
+          a.play().catch(function () {});
+          label.textContent = "Reproduciendo…";
+          a.onended = function () { label.textContent = "Escuchar"; btn.disabled = false; };
+          a.onerror = function () { label.textContent = "Escuchar"; btn.disabled = false; };
+        }).catch(function () {
+          label.textContent = "Escuchar";
+          btn.disabled = false;
+        });
+      });
+      afterDesahogo();
+    });
   }).catch(function () {
+     
     hideTyping();
     logConversacion(text, decirMijo("Te escucho, mijo. Sigue, que estoy aquí."));
-    addBubble(decirMijo("Te escucho, mijo. Sigue, que estoy aquí."), "in");
+    addBubble(decirMijo("Te escucho, mijo. Sigue, que estoy aquí."));
     waitingInput = true;
     setInputEnabled(true);
     inputEl.focus();
   });
 }
+
+/* Continuación del desahogo tras mostrar el eco: ofrece otra parábola
+   tras 2 intercambios (una vez por historia) y re-habilita el input. */
+function afterDesahogo() {
+  var mem2 = loadMemory();
+  var n = (mem2.desahogoCount || 0) + 1;
+  var lista = getParabolas();
+  if (n >= 2 && lista.length < 10 && !mem2.offeredExtra) {
+    saveMemory({ desahogoCount: 0, offeredExtra: true });
+    setTimeout(function () {
+      showTyping();
+      setTimeout(function () {
+        hideTyping();
+        var row = addBubble(
+          escapeHtml(decirMijo(pick(OFRECE_HISTORIA))) +
+          '<br><button class="retry-btn qr-btn" id="qr-si-otra">Sí</button> ' +
+          '<button class="retry-btn qr-btn" id="qr-otra">Cuéntame otra</button>',
+          "in");
+        document.getElementById("qr-si-otra").addEventListener("click", function () { quickReply("sí"); });
+        document.getElementById("qr-otra").addEventListener("click", function () { quickReply("cuéntame otra historia"); });
+        extraState = "ofrece-historia";
+        waitingInput = true;
+        setInputEnabled(true);
+        inputEl.focus();
+      }, typingDelay());
+    }, 1200);
+  } else {
+    saveMemory({ desahogoCount: n });
+    waitingInput = true;
+    setInputEnabled(true);
+    inputEl.focus();
+  }
+}
+ 
 
 /* Prepara la voz completa de la parábola, con reintentos por fragmento.
    Si no se logra, falla: el texto NUNCA se muestra sin su voz lista. */
@@ -1081,10 +1118,25 @@ function revoiceLastStory() {
   }, genId);
 }
 
+/* Al volver: re-renderiza los últimos intercambios guardados para que la
+   conversación no se vea vacía. Solo texto, sin botones de voz. */
+function renderHistory() {
+  var mem = loadMemory();
+  var conv = mem.conversacion || [];
+  if (!conv.length) return;
+  conv.slice(-10).forEach(function (m) {
+    if (m.u) addBubble(escapeHtml(String(m.u)), "out");
+    if (m.t) addBubble(escapeHtml(String(m.t)), "in");
+  });
+}
+
 function startConversation() {
   var mem = loadMemory();
   var firstName = cleanFirstName(mem.nombre) || "mi amor";
+  // Continuidad genuina: los últimos intercambios vuelven a verse antes del saludo.
+  renderHistory();
   var lista = (mem.parabolas && mem.parabolas.length) ? mem.parabolas : (mem.parabola ? [mem.parabola] : []);
+ 
   if (lista.length) {
     // Ya tiene su historia: la saluda, se la muestra y sigue aprendiendo de la persona.
     var a0 = mem.answers || {};
