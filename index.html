@@ -699,6 +699,13 @@ function buildParabolaPayload(isExtra, tipo) {
   return { nombre: answers.nombre, que_pesa: pesa, que_quiere: answers.que_quiere, que_voz: answers.que_voz, tipo: tipo || "" };
 }
 
+/* Si la persona se abrió bastante, la historia va a ser larga: se le avisa con variación. */
+var PENSANDO_LARGA = [
+  "Espérame un segundito, que estoy pensando bien qué contarte que te sirva para tu caso.",
+  "Dame un momentico, que estoy pensando qué historia te cuento que sea para ti.",
+  "Espérame ahí un momentico, que estoy viendo qué te cuento que te sirva de verdad."
+];
+
 /* El usuario elige el tipo de cuento: venezolana o de las de para siempre. */
 function handleEligeTipo(text) {
   var tipo = null;
@@ -819,7 +826,12 @@ function generateParabolaFlow(isExtra, tipo) {
   setInputEnabled(false);
   waitingInput = false;
   var payload = buildParabolaPayload(isExtra, tipo);
-  var statusRow = addBubble('<span class="status-text">Estoy escribiendo tu historia solo para ti, dame un momentico...</span>', "in");
+  // Si contó bastante, la historia sale larga: se le avisa (con variación, nunca igual).
+  var cuantoConto = ((answers.que_pesa || "") + (answers.que_quiere || "") + (answers.que_voz || "") + (answers.que_extra || "")).length;
+  var statusText = cuantoConto > 500
+    ? pickFresh(PENSANDO_LARGA, "pensando")
+    : "Estoy escribiendo tu historia solo para ti, dame un momentico...";
+  var statusRow = addBubble('<span class="status-text">' + escapeHtml(statusText) + "</span>", "in");
   tataParabola(payload).then(function (p) {
     deliverParabola(p, function (urls) {
       var lista = getParabolas();
