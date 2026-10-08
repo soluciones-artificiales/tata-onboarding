@@ -585,14 +585,14 @@ var OFRECE_HISTORIA = [
   "Mijo, con todo lo que me has contado, ¿te provoca que te eche otra historia?"
 ];
 var TERCERA_HISTORIA = [
-  "Y esta fue la tercera, mijo. Ahí sí tienes que escribirme por WhatsApp.",
-  "Mijo, ya van tres historias. La próxima me la pides por WhatsApp."
+  "Y esta fue la décima, mijo. Por ahora me quedo sin cuentos, pero escríbeme por WhatsApp y seguimos.",
+  "Mijo, ya van diez historias. La próxima me la pides por WhatsApp."
 ];
 function showClosingSequence(count) {
   count = count || 1;
   var firstName = cleanFirstName(answers.nombre) || "mi amor";
   var presentacion = PRESENTACIONES[Math.floor(Math.random() * PRESENTACIONES.length)];
-  if (count >= 3) {
+  if (count >= 10) {
     brotherSaySeq([
       { text: decirMijo(pick(TERCERA_HISTORIA)), audio: null }
     ], enableDesahogo);
@@ -674,7 +674,7 @@ var OTRA_RE = /otr[ao]s?\s+(par[áa]bolas?|historias?|cuentos?)|cu[ée]ntame\s+o
 
 function pedirOtraParabola() {
   var lista = getParabolas();
-  if (lista.length >= 3) {
+  if (lista.length >= 10) {
     waitingInput = false;
     setInputEnabled(false);
     brotherSay(decirMijo(pick(TERCERA_HISTORIA)), function () {}, null);
@@ -723,8 +723,43 @@ function handleEligeTipo(text) {
   generateParabolaFlow(eligeTipoExtra, tipo);
 }
 
+/* Si la persona da su número de WhatsApp, Tata lo anota y le confirma con variación. */
+var WHATSAPP_RE = /(\+?\d[\d\s.\-()]{7,}\d)/;
+var WHATSAPP_ACK = [
+  "Dale, te escribo apenas pueda.",
+  "Dale, mi amor, apenas pueda te escribo por ahí.",
+  "Anotado. Te escribo apenas pueda."
+];
+function saveWhatsappBestEffort(tel) {
+  saveMemory({ whatsapp: tel });
+  var payload = { nombre: answers.nombre || "", que_pesa: "WHATSAPP: " + tel, que_quiere: "", que_voz: "" };
+  fetchTimeout(SUPABASE_URL + "/rest/v1/tata_onboarding", {
+    method: "POST",
+    headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json", "Prefer": "return=minimal" },
+    body: JSON.stringify(payload)
+  }).catch(function () {});
+}
+
 function handleDesahogo(text) {
   if (OTRA_RE.test(text)) { pedirOtraParabola(); return; }
+  var telMatch = String(text).match(WHATSAPP_RE);
+  if (telMatch) {
+    var tel = telMatch[1].replace(/[^\d+]/g, "");
+    waitingInput = false;
+    setInputEnabled(false);
+    showTyping();
+    setTimeout(function () {
+      hideTyping();
+      var ack = pick(WHATSAPP_ACK);
+      saveWhatsappBestEffort(tel);
+      logConversacion(text, ack);
+      addBubble(escapeHtml(ack), "in");
+      waitingInput = true;
+      setInputEnabled(true);
+      inputEl.focus();
+    }, typingDelay());
+    return;
+  }
   waitingInput = false;
   setInputEnabled(false);
   showTyping();
@@ -746,7 +781,7 @@ function handleDesahogo(text) {
     var mem2 = loadMemory();
     var n = (mem2.desahogoCount || 0) + 1;
     var lista = getParabolas();
-    if (n >= 2 && lista.length < 3 && !mem2.offeredExtra) {
+    if (n >= 2 && lista.length < 10 && !mem2.offeredExtra) {
       saveMemory({ desahogoCount: 0, offeredExtra: true });
       setTimeout(function () {
         brotherSay(decirMijo(pick(OFRECE_HISTORIA)), function () {
@@ -836,10 +871,10 @@ function generateParabolaFlow(isExtra, tipo) {
     deliverParabola(p, function (urls) {
       var lista = getParabolas();
       lista.push(p);
-      lista = lista.slice(-3);
+      lista = lista.slice(-10);
       var tipos = getTipos();
       tipos.push(tipo || "");
-      tipos = tipos.slice(-3);
+      tipos = tipos.slice(-10);
       saveMemory({ parabolas: lista, tipos: tipos, parabola: p, parabolaAt: Date.now(), desahogoCount: 0, offeredExtra: false });
       showParabolaBubble(p, urls && urls[0]);
       setTimeout(function () { showClosingSequence(lista.length); }, 1200);
