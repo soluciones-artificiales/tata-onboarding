@@ -358,6 +358,24 @@ function restoreFromServer(done) {
   } catch (e) { done(); }
 }
 
+/* ---------- Analítica de experiencia: eventos best-effort ----------
+   Cada evento lleva device_id anónimo + detalle. Fire-and-forget con catch:
+   jamás bloquea la UI ni rompe la experiencia si la red falla. */
+function logEvento(evento, detalle) {
+  try {
+    fetch(SUPABASE_URL + "/rest/v1/tata_eventos", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+      },
+      body: JSON.stringify({ device_id: getDeviceId(), evento: evento, detalle: detalle || {} })
+    }).catch(function () {});
+  } catch (e) {}
+}
+
 let step = 0;            // índice de la próxima pregunta por hacer
 let waitingInput = false;
 let finished = false;
@@ -460,7 +478,7 @@ async function tataTtsBlob(text) {
       "Authorization": "Bearer " + SUPABASE_ANON_KEY,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ text: text })
+    body: JSON.stringify({ text: text, device_id: getDeviceId() })
   });
   if (!res.ok) throw new Error("tts " + res.status);
   return await res.blob();
@@ -490,7 +508,7 @@ async function tataParabola(a) {
           "Authorization": "Bearer " + SUPABASE_ANON_KEY,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz, tipo: a.tipo || "" })
+        body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz, tipo: a.tipo || "", device_id: getDeviceId() })
       }, 90000);
       if (!res.ok) throw new Error("parabola " + res.status);
       var data = await res.json();
@@ -514,7 +532,7 @@ async function tataRetellParabola(nombre, parabolaText, tipo) {
           "Authorization": "Bearer " + SUPABASE_ANON_KEY,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ mode: "retell", nombre: nombre, parabola: parabolaText, tipo: tipo || "" })
+        body: JSON.stringify({ mode: "retell", nombre: nombre, parabola: parabolaText, tipo: tipo || "", device_id: getDeviceId() })
       }, 90000);
       if (!res.ok) throw new Error("retell " + res.status);
       var data = await res.json();
@@ -611,7 +629,7 @@ function shareParabolaAudio(blobUrl, fileName, btn) {
       if (btn) btn.disabled = false;
     } catch (e) {}
   }
-  function downloadFallback() {
+  function downloadFallback(fromCancel) {
     try {
       var a = document.createElement("a");
       a.href = blobUrl;
@@ -619,6 +637,7 @@ function shareParabolaAudio(blobUrl, fileName, btn) {
       document.body.appendChild(a);
       a.click();
       a.remove();
+      if (!fromCancel) logEvento("compartir_audio", { via: "descarga" });
     } catch (e) {}
     done();
   }
@@ -630,13 +649,16 @@ function shareParabolaAudio(blobUrl, fileName, btn) {
       try { file = new File([blob], fileName, { type: blob.type || "audio/mpeg" }); } catch (e) {}
       if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
-          navigator.share({ files: [file], title: "Mi historia de Tata" }).then(done, function () { downloadFallback(); });
-        } catch (e) { downloadFallback(); }
+          navigator.share({ files: [file], title: "Mi historia de Tata" }).then(
+            function () { logEvento("compartir_audio", { via: "share" }); done(); },
+            function () { downloadFallback(true); }
+          );
+        } catch (e) { downloadFallback(false); }
       } else {
-        downloadFallback();
+        downloadFallback(false);
       }
-    }).catch(function () { downloadFallback(); });
-  } catch (e) { downloadFallback(); }
+    }).catch(function () { downloadFallback(false); });
+  } catch (e) { downloadFallback(false); }
 }
 
 function wireShareButton(row, blobUrl) {
@@ -894,6 +916,7 @@ function repetirUltimaHistoria(userText) {
   showTyping();
   var last = lista[lista.length - 1];
   var intro = "Esta fue tu última historia, " + firstName + ".";
+  logEvento("repite_historia", {});
   prepareParabolaVoice(last).then(function (urls) {
     hideTyping();
     logConversacion(userText, intro);
@@ -975,6 +998,7 @@ function retellParabola(userText) {
       t2.push(targetTipo);
       t2 = t2.slice(-10);
       saveMemory({ parabolas: l2, tipos: t2, parabola: p, parabolaAt: Date.now() });
+      logEvento("retell", { tipo: targetTipo });
       logConversacion(userText, intro);
       var row = addBubble(
         escapeHtml(intro) + "<br><br>" + escapeHtml(p),
@@ -995,6 +1019,7 @@ function retellParabola(userText) {
       "in",
       '<br><button class="retry-btn retry-retell-btn">Reintentar</button>'
     );
+    logEvento("error_generacion", { donde: "retell" });
     // La persona nunca queda sin poder hablar: el input sigue habilitado.
     waitingInput = true;
     setInputEnabled(true);
@@ -1088,6 +1113,7 @@ function handleDesahogo(text) {
   waitingInput = false;
   setInputEnabled(false);
   showTyping();
+  logEvento("desahogo_msg", {});
   // En el desahogo responde a lo NUEVO: contexto = conversación reciente, no todo de nuevo.
   var mem = loadMemory();
   var conv = (mem.conversacion || []).slice(-6).map(function (m) { return "Persona: " + m.u + "\nTata: " + m.t; }).join("\n");
@@ -1230,6 +1256,7 @@ function deliverParabola(p, onReady, statusRow, onProgress, genId) {
       "in",
       '<br><button class="retry-btn retry-delivery-btn">Reintentar</button>'
     );
+    logEvento("error_generacion", { donde: "voz" });
     // La persona nunca queda sin poder hablar: el input sigue habilitado.
     waitingInput = true;
     setInputEnabled(true);
@@ -1292,6 +1319,7 @@ function generateParabolaFlow(isExtra, tipo) {
       tipos.push(tipo || "");
       tipos = tipos.slice(-10);
       saveMemory({ parabolas: lista, tipos: tipos, parabola: p, parabolaAt: Date.now(), desahogoCount: 0, offeredExtra: false });
+      logEvento("parabola_generada", { tipo: tipo || "" });
       showParabolaBubble(p, urls && urls[0]);
       setTimeout(function () { showClosingSequence(lista.length); }, 1200);
     }, statusRow, function (done, total) {
@@ -1306,6 +1334,7 @@ function generateParabolaFlow(isExtra, tipo) {
       "in",
       '<br><button class="retry-btn retry-parabola-btn">Reintentar</button>'
     );
+    logEvento("error_generacion", { donde: "parabola" });
     // La persona nunca queda sin poder hablar: el input sigue habilitado.
     waitingInput = true;
     setInputEnabled(true);
@@ -1330,7 +1359,7 @@ async function tataEco(modo, pregunta, ultima, ctxOverride) {
       "Authorization": "Bearer " + SUPABASE_ANON_KEY,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ modo: modo, nombre: answers.nombre, pregunta: pregunta || "", ultima: ultima || "", contexto: ctx })
+    body: JSON.stringify({ modo: modo, nombre: answers.nombre, pregunta: pregunta || "", ultima: ultima || "", contexto: ctx, device_id: getDeviceId() })
   });
   if (!res.ok) throw new Error("eco " + res.status);
   var data = await res.json();
@@ -1468,6 +1497,7 @@ function startConversation() {
     restoreFromServer(function () { startConversation(); });
     return;
   }
+  logEvento("page_open", {});
   var firstName = cleanFirstName(mem.nombre) || "mi amor";
   // Continuidad genuina: los últimos intercambios vuelven a verse antes del saludo.
   renderHistory();
@@ -1675,6 +1705,7 @@ function showResumenStep(texto) {
 }
 
 function finishConversation() {
+  logEvento("onboarding_fin", {});
   showTyping();
   saveAnswers().then(function () {
     saveMemory({ answers: { nombre: answers.nombre, que_pesa: answers.que_pesa, que_quiere: answers.que_quiere, que_voz: answers.que_voz, que_extra: answers.que_extra }, finishedAt: Date.now() });

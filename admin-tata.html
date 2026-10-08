@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Tata · Panel privado</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; margin: 0; background: #f4f1ea; color: #202329; }
+  /* ---------- Gate ---------- */
+  #gate { position: fixed; inset: 0; background: #202329; display: flex; align-items: center; justify-content: center; z-index: 50; }
+  #gate .box { background: #fffaf2; border: 3px solid #202329; box-shadow: 8px 8px 0 #000; padding: 32px; width: min(360px, 90vw); text-align: center; }
+  #gate h1 { margin: 0 0 8px; font-size: 22px; }
+  #gate p { color: #505966; font-size: 14px; margin: 0 0 16px; }
+  #gate input { width: 100%; padding: 12px; font-size: 16px; border: 2px solid #202329; margin-bottom: 12px; }
+  #gate button { width: 100%; padding: 12px; font-size: 16px; background: #234ddb; color: #fff; border: 2px solid #202329; box-shadow: 4px 4px 0 #000; cursor: pointer; }
+  #gate button:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 #000; }
+  #gate .err { color: #bc442c; font-size: 13px; margin-top: 10px; min-height: 18px; }
+  /* ---------- App ---------- */
+  #app { display: none; max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+  header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  header.top h1 { margin: 0; font-size: 24px; }
+  header.top .sub { color: #505966; font-size: 13px; }
+  header.top button { padding: 8px 16px; background: #fff; border: 2px solid #202329; box-shadow: 3px 3px 0 #000; cursor: pointer; font-size: 14px; }
+  .warn { background: #ffe3d9; border: 2px solid #bc442c; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; display: none; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .card { background: #fff; border: 2px solid #202329; box-shadow: 4px 4px 0 #000; padding: 14px; }
+  .card .k { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #505966; margin-bottom: 6px; font-family: "Courier New", monospace; }
+  .card .v { font-size: 28px; font-weight: 700; }
+  .card .d { font-size: 12px; color: #505966; margin-top: 4px; }
+  h2 { font-size: 18px; margin: 28px 0 12px; }
+  .panel { background: #fff; border: 2px solid #202329; box-shadow: 4px 4px 0 #000; padding: 16px; margin-bottom: 24px; }
+  .bars { display: flex; align-items: flex-end; gap: 8px; height: 150px; padding-top: 10px; }
+  .barcol { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+  .bar { width: 70%; background: #234ddb; border: 2px solid #202329; min-height: 3px; }
+  .bar.alt { background: #bc442c; }
+  .barlbl { font-size: 10px; color: #505966; margin-top: 6px; font-family: "Courier New", monospace; }
+  .barval { font-size: 11px; font-weight: 700; margin-bottom: 4px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .charts { grid-template-columns: 1fr; } }
+  table.users { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.users th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #505966; padding: 8px; border-bottom: 2px solid #202329; font-family: "Courier New", monospace; }
+  table.users td { padding: 10px 8px; border-bottom: 1px solid #e5e0d5; }
+  table.users tr.row { cursor: pointer; }
+  table.users tr.row:hover td { background: #dce5ff; }
+  .costline { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e0d5; font-size: 14px; }
+  .costline:last-child { border-bottom: 0; }
+  .costline b { font-variant-numeric: tabular-nums; }
+  .note { font-size: 12px; color: #505966; margin-top: 10px; }
+  /* ---------- Modal ---------- */
+  #modalWrap { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 40; align-items: center; justify-content: center; padding: 16px; }
+  #modalWrap.open { display: flex; }
+  #modal { background: #fffaf2; border: 3px solid #202329; box-shadow: 8px 8px 0 #000; width: min(640px, 96vw); max-height: 88vh; overflow-y: auto; padding: 20px; }
+  #modal h3 { margin: 0 0 4px; }
+  #modal .msub { color: #505966; font-size: 13px; margin-bottom: 14px; }
+  #modal .close { float: right; background: #fff; border: 2px solid #202329; box-shadow: 2px 2px 0 #000; cursor: pointer; padding: 4px 12px; }
+  .hist { border: 2px solid #202329; padding: 10px 12px; margin-bottom: 10px; background: #fff; font-size: 13px; }
+  .hist .tag { display: inline-block; font-size: 10px; font-family: "Courier New", monospace; background: #dce5ff; border: 1px solid #234ddb; padding: 2px 8px; margin-bottom: 6px; }
+  .conv { margin-top: 16px; }
+  .bubble-u { background: #234ddb; color: #fff; border-radius: 12px 12px 2px 12px; padding: 8px 12px; margin: 6px 0 6px 40px; font-size: 13px; }
+  .bubble-t { background: #fff; border: 1px solid #202329; border-radius: 12px 12px 12px 2px; padding: 8px 12px; margin: 6px 40px 6px 0; font-size: 13px; }
+  .empty { color: #505966; font-size: 14px; padding: 20px; text-align: center; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <h1>Tata · Panel privado</h1>
+    <p>Solo para ti. Escribe la clave.</p>
+    <input type="password" id="pw" placeholder="Clave" autocomplete="off">
+    <button id="go">Entrar</button>
+    <div class="err" id="gateErr"></div>
+  </div>
+</div>
+
+<div id="app">
+  <header class="top">
+    <div>
+      <h1>Tata · Panel privado</h1>
+      <div class="sub" id="updated">Cargando…</div>
+    </div>
+    <button id="reload">Actualizar</button>
+  </header>
+
+  <div class="warn" id="warn"></div>
+
+  <div class="grid" id="kpis"></div>
+
+  <h2>Últimos 7 días</h2>
+  <div class="charts">
+    <div class="panel">
+      <b>Parábolas por día</b>
+      <div class="bars" id="chartPar"></div>
+    </div>
+    <div class="panel">
+      <b>Usuarios nuevos por día</b>
+      <div class="bars" id="chartUsr"></div>
+    </div>
+  </div>
+
+  <h2>Costos de API</h2>
+  <div class="panel" id="costs"></div>
+
+  <h2>Embudo</h2>
+  <div class="panel" id="funnel"></div>
+
+  <h2>Usuarios</h2>
+  <div class="panel">
+    <div style="overflow-x:auto">
+    <table class="users">
+      <thead><tr><th>Nombre</th><th>Parábolas</th><th>Intercambios</th><th>Última actividad</th></tr></thead>
+      <tbody id="userRows"></tbody>
+    </table>
+    </div>
+  </div>
+</div>
+
+<div id="modalWrap">
+  <div id="modal">
+    <button class="close" id="modalClose">Cerrar</button>
+    <h3 id="mName"></h3>
+    <div class="msub" id="mSub"></div>
+    <div id="mHist"></div>
+    <div class="conv" id="mConv"></div>
+  </div>
+</div>
+
+<script>
+/* ============ Config ============ */
+var SUPABASE_URL = "https://sjsnnumwshvtxahpdszq.supabase.co";
+var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqc25udW13c2h2dHhhaHBkc3pxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNTE1MTgsImV4cCI6MjEwNjkyNzUxOH0.3PnzdavX4l2o8Q2Zj1jwwZtEDa3FiZnFGEJgNNREihc";
+var PASS_HASH = "731f060536cb9a826d1ab9112718dec83155827229c75e71a4290c729aff38f5"; // SHA-256 de la clave
+var PRICE_IN_MTOK = 1.25;   // USD por millón de tokens de entrada (precio público Meta)
+var PRICE_OUT_MTOK = 4.25;  // USD por millón de tokens de salida (precio público Meta)
+
+/* ============ Gate ============ */
+function hex(buf) {
+  return Array.prototype.map.call(new Uint8Array(buf), function (b) {
+    return ("0" + b.toString(16)).slice(-2);
+  }).join("");
+}
+async function tryLogin() {
+  var pw = document.getElementById("pw").value || "";
+  var err = document.getElementById("gateErr");
+  try {
+    var h = hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw)));
+    if (h === PASS_HASH) {
+      document.getElementById("gate").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      loadAll();
+    } else {
+      err.textContent = "Clave incorrecta.";
+    }
+  } catch (e) {
+    err.textContent = "Tu navegador no soporta la verificación (necesita HTTPS).";
+  }
+}
+document.getElementById("go").addEventListener("click", tryLogin);
+document.getElementById("pw").addEventListener("keydown", function (e) { if (e.key === "Enter") tryLogin(); });
+document.getElementById("reload").addEventListener("click", loadAll);
+document.getElementById("modalClose").addEventListener("click", function () {
+  document.getElementById("modalWrap").classList.remove("open");
+});
+document.getElementById("modalWrap").addEventListener("click", function (e) {
+  if (e.target === this) this.classList.remove("open");
+});
+
+/* ============ Utilidades ============ */
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function fmt(n) { return Number(n || 0).toLocaleString("es"); }
+function money(n) { return "$" + Number(n || 0).toFixed(2); }
+function dayKey(d) {
+  d = new Date(d);
+  return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+}
+function dayLabel(key) {
+  var p = key.split("-");
+  return p[2] + "/" + p[1];
+}
+function relTime(iso) {
+  if (!iso) return "—";
+  var ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) ms = 0;
+  var m = Math.floor(ms / 60000);
+  if (m < 1) return "ahora mismo";
+  if (m < 60) return "hace " + m + " min";
+  var h = Math.floor(m / 60);
+  if (h < 24) return "hace " + h + " h";
+  var d = Math.floor(h / 24);
+  if (d === 1) return "ayer";
+  if (d < 7) return "hace " + d + " días";
+  return new Date(iso).toLocaleDateString("es");
+}
+function last7() {
+  var out = [];
+  for (var i = 6; i >= 0; i--) {
+    var d = new Date();
+    d.setDate(d.getDate() - i);
+    out.push(dayKey(d));
+  }
+  return out;
+}
+async function getJSON(path) {
+  var res = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
+    headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY }
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+/* ============ Carga y render ============ */
+var USERS = []; // [{device_id, nombre, parabolas[], tipos[], conversacion[], created_at, updated_at}]
+
+async function loadAll() {
+  document.getElementById("updated").textContent = "Cargando…";
+  var warn = document.getElementById("warn");
+  warn.style.display = "none";
+  var problems = [];
+  var eventos = [], usage = [], memoria = [];
+  try { eventos = await getJSON("tata_eventos?select=device_id,evento,detalle,created_at&order=created_at.desc&limit=5000"); }
+  catch (e) { problems.push("tata_eventos"); }
+  try { usage = await getJSON("tata_api_usage?select=device_id,funcion,modelo,prompt_tokens,completion_tokens,caracteres,created_at&order=created_at.desc&limit=5000"); }
+  catch (e) { problems.push("tata_api_usage"); }
+  try { memoria = await getJSON("tata_memoria?select=device_id,nombre,parabolas,tipos,conversacion,created_at,updated_at&order=updated_at.desc&limit=2000"); }
+  catch (e) { problems.push("tata_memoria"); }
+  // Nota: tata_onboarding no tiene lectura para anon (RLS); el embudo se deriva de eventos.
+  if (problemas.length) {
+    warn.style.display = "block";
+    warn.textContent = "No se pudieron leer: " + problemas.join(", ") + ". Revisa las policies en Supabase.";
+  }
+  render(eventos, usage, memoria);
+  document.getElementById("updated").textContent = "Actualizado " + new Date().toLocaleString("es");
+}
+
+function render(eventos, usage, memoria) {
+  var today = dayKey(new Date());
+  var days = last7();
+
+  /* ---- Usuarios ---- */
+  var byDevice = {};
+  memoria.forEach(function (m) {
+    byDevice[m.device_id] = {
+      device_id: m.device_id,
+      nombre: m.nombre || "",
+      parabolas: Array.isArray(m.parabolas) ? m.parabolas : [],
+      tipos: Array.isArray(m.tipos) ? m.tipos : [],
+      conversacion: Array.isArray(m.conversacion) ? m.conversacion : [],
+      created_at: m.created_at,
+      updated_at: m.updated_at
+    };
+  });
+  var firstSeen = {};
+  eventos.forEach(function (e) {
+    if (!e.device_id) return;
+    if (!firstSeen[e.device_id] || e.created_at < firstSeen[e.device_id]) firstSeen[e.device_id] = e.created_at;
+    if (!byDevice[e.device_id]) {
+      byDevice[e.device_id] = { device_id: e.device_id, nombre: "", parabolas: [], tipos: [], conversacion: [], created_at: e.created_at, updated_at: e.created_at };
+    }
+  });
+  Object.keys(byDevice).forEach(function (id) {
+    if (!firstSeen[id] && byDevice[id].created_at) firstSeen[id] = byDevice[id].created_at;
+  });
+  USERS = Object.keys(byDevice).map(function (id) { return byDevice[id]; });
+  USERS.sort(function (a, b) { return new Date(b.updated_at || 0) - new Date(a.updated_at || 0); });
+
+  var totalUsers = USERS.length;
+  var newToday = USERS.filter(function (u) { return firstSeen[u.device_id] && dayKey(firstSeen[u.device_id]) === today; }).length;
+
+  /* ---- Eventos ---- */
+  function countEv(name, onlyToday) {
+    return eventos.filter(function (e) {
+      return e.evento === name && (!onlyToday || dayKey(e.created_at) === today);
+    }).length;
+  }
+  var parTotal = countEv("parabola_generada", false), parToday = countEv("parabola_generada", true);
+  var retells = countEv("retell", false), repites = countEv("repite_historia", false), shares = countEv("compartir_audio", false);
+  var desahogos = countEv("desahogo_msg", false), errores = countEv("error_generacion", false);
+  var onbFin = countEv("onboarding_fin", false);
+
+  var tipoCount = {};
+  eventos.forEach(function (e) {
+    if ((e.evento === "parabola_generada" || e.evento === "retell") && e.detalle && e.detalle.tipo) {
+      var t = e.detalle.tipo === "venezolana" ? "A lo venezolano" : (e.detalle.tipo === "para_siempre" ? "De siempre" : e.detalle.tipo);
+      tipoCount[t] = (tipoCount[t] || 0) + 1;
+    }
+  });
+
+  var avgConv = 0;
+  if (USERS.length) {
+    var sum = USERS.reduce(function (a, u) { return a + u.conversacion.length; }, 0);
+    avgConv = sum / USERS.length;
+  }
+
+  /* ---- Embudo ---- */
+  function distinctDevices(name) {
+    var s = {};
+    eventos.forEach(function (e) { if (e.evento === name && e.device_id) s[e.device_id] = 1; });
+    return Object.keys(s).length;
+  }
+  var fOpen = distinctDevices("page_open"), fFin = distinctDevices("onboarding_fin"), fPar = distinctDevices("parabola_generada");
+  function pct(a, b) { return b ? Math.round(100 * a / b) + "%" : "—"; }
+
+  /* ---- Costos ---- */
+  var tokIn = 0, tokOut = 0, ttsChars = 0;
+  var perDay = {};
+  days.forEach(function (d) { perDay[d] = { tin: 0, tout: 0 }; });
+  usage.forEach(function (u) {
+    if (u.modelo === "muse-spark-1.3") {
+      tokIn += u.prompt_tokens || 0;
+      tokOut += u.completion_tokens || 0;
+      var dk = dayKey(u.created_at);
+      if (perDay[dk]) { perDay[dk].tin += u.prompt_tokens || 0; perDay[dk].tout += u.completion_tokens || 0; }
+    }
+    if (u.funcion === "tts") ttsChars += u.caracteres || 0;
+  });
+  function usd(tin, tout) { return tin / 1e6 * PRICE_IN_MTOK + tout / 1e6 * PRICE_OUT_MTOK; }
+  var totalUSD = usd(tokIn, tokOut);
+
+  /* ---- KPIs ---- */
+  var kpis = [
+    { k: "Usuarios", v: fmt(totalUsers), d: fmt(newToday) + " nuevos hoy" },
+    { k: "Parábolas", v: fmt(parTotal), d: fmt(parToday) + " hoy" },
+    { k: "Re-contadas", v: fmt(retells), d: "misma historia, otro estilo" },
+    { k: "Repetidas", v: fmt(repites), d: "\"repite mi historia\"" },
+    { k: "Compartidas", v: fmt(shares), d: "audios enviados/guardados" },
+    { k: "Msgs desahogo", v: fmt(desahogos), d: "conversación libre" },
+    { k: "Intercambios / usuario", v: avgConv.toFixed(1), d: "promedio" },
+    { k: "Errores", v: fmt(errores), d: "fallos de generación" }
+  ];
+  document.getElementById("kpis").innerHTML = kpis.map(function (c) {
+    return '<div class="card"><div class="k">' + esc(c.k) + '</div><div class="v">' + esc(c.v) + '</div><div class="d">' + esc(c.d) + '</div></div>';
+  }).join("");
+
+  /* ---- Gráficos ---- */
+  function bars(elId, values, alt) {
+    var max = Math.max.apply(null, values.concat([1]));
+    document.getElementById(elId).innerHTML = days.map(function (d, i) {
+      var v = values[i], h = Math.max(3, Math.round(100 * v / max));
+      return '<div class="barcol"><div class="barval">' + v + '</div>' +
+        '<div class="bar' + (alt ? " alt" : "") + '" style="height:' + h + '%"></div>' +
+        '<div class="barlbl">' + dayLabel(d) + '</div></div>';
+    }).join("");
+  }
+  bars("chartPar", days.map(function (d) {
+    return eventos.filter(function (e) { return e.evento === "parabola_generada" && dayKey(e.created_at) === d; }).length;
+  }), false);
+  bars("chartUsr", days.map(function (d) {
+    return USERS.filter(function (u) { return firstSeen[u.device_id] && dayKey(firstSeen[u.device_id]) === d; }).length;
+  }), true);
+
+  /* ---- Costos ---- */
+  var costRows = days.map(function (d) {
+    var t = perDay[d];
+    return '<div class="costline"><span>' + dayLabel(d) + ' <span style="color:#505966">(' + fmt(t.tin) + ' in / ' + fmt(t.tout) + ' out)</span></span><b>' + money(usd(t.tin, t.tout)) + '</b></div>';
+  }).join("");
+  document.getElementById("costs").innerHTML =
+    '<div class="costline"><span>Tokens entrada (total)</span><b>' + fmt(tokIn) + '</b></div>' +
+    '<div class="costline"><span>Tokens salida (total)</span><b>' + fmt(tokOut) + '</b></div>' +
+    '<div class="costline"><span><b>Costo Meta API (total)</b></span><b>' + money(totalUSD) + '</b></div>' +
+    '<div class="costline"><span>Costo por usuario</span><b>' + money(totalUsers ? totalUSD / totalUsers : 0) + '</b></div>' +
+    '<div class="costline"><span>Caracteres de voz (ElevenLabs)</span><b>' + fmt(ttsChars) + '</b></div>' +
+    costRows +
+    '<div class="note">Costos Meta calculados con precio público: $' + PRICE_IN_MTOK + '/MTok entrada, $' + PRICE_OUT_MTOK + '/MTok salida. La voz se cobra aparte en ElevenLabs (ver su panel).</div>';
+
+  /* ---- Embudo ---- */
+  var tiposHtml = Object.keys(tipoCount).map(function (t) {
+    return '<div class="costline"><span>' + esc(t) + '</span><b>' + fmt(tipoCount[t]) + '</b></div>';
+  }).join("") || '<div class="note">Sin datos todavía.</div>';
+  document.getElementById("funnel").innerHTML =
+    '<div class="costline"><span>Abrir la página</span><b>' + fmt(fOpen) + '</b></div>' +
+    '<div class="costline"><span>Terminar onboarding</span><b>' + fmt(fFin) + ' (' + pct(fFin, fOpen) + ')</b></div>' +
+    '<div class="costline"><span>Recibir primera parábola</span><b>' + fmt(fPar) + ' (' + pct(fPar, fOpen) + ')</b></div>' +
+    '<div class="note">Parábolas por tipo (desde eventos):</div>' + tiposHtml;
+
+  /* ---- Tabla de usuarios ---- */
+  var rows = USERS.map(function (u, i) {
+    var name = u.nombre ? esc(u.nombre) : '<span style="color:#505966">sin nombre</span>';
+    return '<tr class="row" data-i="' + i + '"><td>' + name + '</td><td>' + u.parabolas.length + '</td><td>' + u.conversacion.length + '</td><td>' + esc(relTime(u.updated_at)) + '</td></tr>';
+  }).join("");
+  document.getElementById("userRows").innerHTML = rows || '<tr><td colspan="4" class="empty">Sin usuarios todavía.</td></tr>';
+  Array.prototype.forEach.call(document.querySelectorAll("#userRows .row"), function (tr) {
+    tr.addEventListener("click", function () { showUser(USERS[+tr.getAttribute("data-i")]); });
+  });
+}
+
+function showUser(u) {
+  document.getElementById("mName").textContent = u.nombre || "Sin nombre";
+  document.getElementById("mSub").textContent = "ID " + String(u.device_id).slice(0, 8) + " · última actividad " + relTime(u.updated_at);
+  var hist = "";
+  for (var i = u.parabolas.length - 1; i >= 0; i--) {
+    var tipo = (u.tipos && u.tipos[i] === "venezolana") ? "A lo venezolano" : ((u.tipos && u.tipos[i] === "para_siempre") ? "De siempre" : "Historia");
+    var txt = String(u.parabolas[i] || "");
+    hist += '<div class="hist"><span class="tag">' + esc(tipo) + ' · #' + (i + 1) + '</span><br>' + esc(txt.slice(0, 160)) + (txt.length > 160 ? "…" : "") + '</div>';
+  }
+  document.getElementById("mHist").innerHTML = hist || '<div class="empty">Sin parábolas todavía.</div>';
+  var conv = u.conversacion.slice(-10).map(function (m) {
+    return '<div class="bubble-u">' + esc(m.u) + '</div><div class="bubble-t">' + esc(m.t) + '</div>';
+  }).join("");
+  document.getElementById("mConv").innerHTML = conv ? "<b>Conversación reciente</b>" + conv : "";
+  document.getElementById("modalWrap").classList.add("open");
+}
+</script>
+</body>
+</html>
