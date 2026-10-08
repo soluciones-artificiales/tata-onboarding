@@ -508,30 +508,16 @@ function pickFresh(a, key) {
   return s;
 }
 
-/* Términos cariñosos venezolanos: varían siempre, nunca el mismo.
-   Con género: a una mujer jamás "mijo" ni "gordo"; a un hombre jamás "mija". */
-function inferGenero(nombre) {
-  var n = (nombre || "").trim().toLowerCase();
-  if (!n) return "?";
-  if (/a$/.test(n)) return "f";
-  if (/o$/.test(n)) return "m";
-  return "?";
-}
+/* Términos cariñosos venezolanos: siempre neutrales, nunca el mismo dos veces seguidas. */
 function tratoMijo() {
-  var g = inferGenero(cleanFirstName(answers.nombre));
-  if (g === "f") return "mija";
-  if (g === "m") return "mijo";
-  return "mi amor";
+  // Sin adivinar género por el nombre: siempre cariño neutral.
+  return pick(["mi amor", "mi cielo", "cariño"]);
 }
 /* Reemplaza "mijo" por el trato correcto según el nombre. */
 function decirMijo(s) { return String(s).replace(/mijo/g, tratoMijo()); }
 var ENDEARMENTS_BASE = ["mi amor", "mi cielo", "cariño"];
 function endear() {
-  var lista = ENDEARMENTS_BASE.slice();
-  var g = inferGenero(cleanFirstName(answers.nombre));
-  if (g === "f") lista.push("gorda");
-  else if (g === "m") lista.push("gordo");
-  return pick(lista);
+  return pick(ENDEARMENTS_BASE.slice());
 }
 
 var PRESENTACIONES = [
