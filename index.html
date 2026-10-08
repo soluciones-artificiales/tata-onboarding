@@ -828,10 +828,11 @@ function handleDesahogo(text) {
 
 /* Prepara la voz completa de la parábola, con reintentos por fragmento.
    Si no se logra, falla: el texto NUNCA se muestra sin su voz lista. */
-async function prepareParabolaVoice(p) {
+async function prepareParabolaVoice(p, onProgress) {
   var parts = splitParabola(p);
   var blobs = [];
   for (var i = 0; i < parts.length; i++) {
+    if (onProgress) { try { onProgress(i, parts.length); } catch (e) {} }
     var b = null;
     for (var att = 0; att < 3 && !b; att++) {
       try { b = await tataTtsBlob(parts[i]); } catch (e) { b = null; }
@@ -839,6 +840,7 @@ async function prepareParabolaVoice(p) {
     if (!b) throw new Error("voz no lista");
     blobs.push(b);
   }
+  if (onProgress) { try { onProgress(parts.length, parts.length); } catch (e) {} }
   // Un solo audio: los fragmentos MP3 se unen y suenan sin cortes ni pausas raras.
   return [URL.createObjectURL(new Blob(blobs, { type: "audio/mpeg" }))];
 }
@@ -850,19 +852,22 @@ function setStatusText(row, text) {
 }
 
 /* Entrega la parábola: texto y voz salen JUNTOS. Si la voz no está lista, no sale el texto. */
-function deliverParabola(p, onReady, statusRow) {
+function deliverParabola(p, onReady, statusRow, onProgress, genId) {
   if (statusRow) setStatusText(statusRow, "Ya la tengo escrita. Ahora le estoy poniendo mi voz, ya casi...");
   else showTyping();
   setInputEnabled(false);
   waitingInput = false;
-  prepareParabolaVoice(p).then(function (urls) {
+  prepareParabolaVoice(p, function (done, total) {
+    if (parabolaGen) parabolaGen.lastProgress = Date.now();
+    if (onProgress) onProgress(done, total);
+  }).then(function (urls) {
     hideTyping();
     if (statusRow) statusRow.remove();
     parabolaUrls = urls;
     onReady(urls);
   }).catch(function () {
     hideTyping();
-    parabolaGen = null;
+    if (genId && parabolaGen && parabolaGen.id === genId) parabolaGen = null;
     if (statusRow) statusRow.remove();
     var row = addBubble(
       "Tuve un problema preparando mi voz para tu historia. ¿Lo intentamos de nuevo?",
@@ -882,7 +887,8 @@ var parabolaGen = null; // { id, since, isExtra, tipo, statusRow }
 var parabolaGenSeq = 0;
 document.addEventListener("visibilitychange", function () {
   if (document.hidden || !parabolaGen) return;
-  if (Date.now() - parabolaGen.since < 45000) return;
+  var lastActive = parabolaGen.lastProgress || parabolaGen.since;
+  if (Date.now() - lastActive < 45000) return;
   var pp = parabolaGen;
   parabolaGen = null; // la promesa vieja queda huérfana y se ignora al resolver
   if (pp.statusRow) pp.statusRow.remove();
@@ -895,7 +901,8 @@ document.addEventListener("visibilitychange", function () {
   );
   document.getElementById("retry-stuck").addEventListener("click", function () {
     row.remove();
-    generateParabolaFlow(pp.isExtra, pp.tipo);
+    if (pp.retry) pp.retry();
+    else generateParabolaFlow(pp.isExtra, pp.tipo);
   });
 });
 
@@ -911,7 +918,7 @@ function generateParabolaFlow(isExtra, tipo) {
     ? pickFresh(PENSANDO_LARGA, "pensando")
     : "Estoy escribiendo tu historia solo para ti, dame un momentico...";
   var statusRow = addBubble('<span class="status-text">' + escapeHtml(statusText) + "</span>", "in");
-  parabolaGen = { id: genId, since: Date.now(), isExtra: isExtra, tipo: tipo, statusRow: statusRow };
+  parabolaGen = { id: genId, since: Date.now(), isExtra: isExtra, tipo: tipo, statusRow: statusRow, retry: function () { generateParabolaFlow(isExtra, tipo); } };
   tataParabola(payload).then(function (p) {
     if (!parabolaGen || parabolaGen.id !== genId) return; // reintentado desde otro lado
     deliverParabola(p, function (urls) {
@@ -925,7 +932,9 @@ function generateParabolaFlow(isExtra, tipo) {
       saveMemory({ parabolas: lista, tipos: tipos, parabola: p, parabolaAt: Date.now(), desahogoCount: 0, offeredExtra: false });
       showParabolaBubble(p, urls && urls[0]);
       setTimeout(function () { showClosingSequence(lista.length); }, 1200);
-    }, statusRow);
+    }, statusRow, function (done, total) {
+      setStatusText(statusRow, "Le estoy poniendo mi voz... (" + done + " de " + total + ")");
+    }, genId);
   }).catch(function () {
     if (!parabolaGen || parabolaGen.id !== genId) return;
     parabolaGen = null;
@@ -1054,6 +1063,24 @@ function brotherSay(text, then, audioSrc, slow) {
   }, slow ? typingDelaySlow() : typingDelay());
 }
 
+/* Al volver: re-vocea la última historia guardada, con guardián y progreso. */
+function revoiceLastStory() {
+  var lista = getParabolas();
+  if (!lista.length) { startConversation(); return; }
+  var last = lista[lista.length - 1];
+  var genId = ++parabolaGenSeq;
+  var statusRow = addBubble('<span class="status-text">Le estoy poniendo mi voz a tu historia, ya casi...</span>', "in");
+  parabolaGen = { id: genId, since: Date.now(), statusRow: statusRow, retry: function () { revoiceLastStory(); } };
+  deliverParabola(last, function (urls) {
+    if (parabolaGen && parabolaGen.id === genId) parabolaGen = null;
+    showParabolaBubble(last, urls && urls[0]);
+    // El follow-up completo también al volver: las 4 burbujas (incluye lo del beta).
+    setTimeout(function () { showClosingSequence(lista.length); }, 1200);
+  }, statusRow, function (done, total) {
+    setStatusText(statusRow, "Le estoy poniendo mi voz... (" + done + " de " + total + ")");
+  }, genId);
+}
+
 function startConversation() {
   var mem = loadMemory();
   var firstName = cleanFirstName(mem.nombre) || "mi amor";
@@ -1069,13 +1096,7 @@ function startConversation() {
     finished = true;
     setInputEnabled(false);
     brotherSay("Hola " + firstName + ", qué bueno verte de nuevo. Aquí está tu última historia.", function () {
-      var last = lista[lista.length - 1];
-      var statusRow = addBubble('<span class="status-text">Le estoy poniendo mi voz a tu historia, ya casi...</span>', "in");
-      deliverParabola(last, function (urls) {
-        showParabolaBubble(last, urls && urls[0]);
-        // El follow-up completo también al volver: las 4 burbujas (incluye lo del beta).
-        setTimeout(function () { showClosingSequence(lista.length); }, 1200);
-      }, statusRow);
+      revoiceLastStory();
     }, null);
   } else if (mem.nombre && mem.finishedAt) {
     // Terminó el onboarding pero la historia no se generó: la generamos ahora.
