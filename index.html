@@ -296,6 +296,27 @@ function getDeviceId() {
     return id;
   } catch (e) { return fb; }
 }
+/* ---------- Test A/B del algoritmo de parábolas: variante pegajosa por dispositivo ----------
+   A = algoritmo clásico, B = algoritmo modular (5 moldes). Solo español: /en no asigna variante. */
+var VARIANT_KEY = "tata-variant-v1";
+var MOLDE_KEY = "tata-molde-v1";
+function getVariant() {
+  try {
+    var v = localStorage.getItem(VARIANT_KEY);
+    if (v === "a" || v === "b") return v;
+    v = Math.random() < 0.5 ? "a" : "b";
+    try { localStorage.setItem(VARIANT_KEY, v); } catch (e) {}
+    try { logEvento("variante_asignada", { variant: v }); } catch (e) {}
+    return v;
+  } catch (e) { return "a"; }
+}
+function getUltimoMolde() {
+  try { return localStorage.getItem(MOLDE_KEY) || ""; } catch (e) { return ""; }
+}
+function setUltimoMolde(m) {
+  try { if (m) localStorage.setItem(MOLDE_KEY, m); } catch (e) {}
+}
+var TATA_VARIANT = getVariant();
 /* Sube la memoria al servidor. Se llama con debounce desde saveMemory, nunca bloquea la UI. */
 var _syncTimer = null;
 function scheduleServerSync() {
@@ -513,14 +534,16 @@ async function tataParabola(a) {
           "Authorization": "Bearer " + SUPABASE_ANON_KEY,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz, tipo: a.tipo || "", device_id: getDeviceId() })
+        body: JSON.stringify({ nombre: a.nombre, que_pesa: a.que_pesa, que_quiere: a.que_quiere, que_voz: a.que_voz, tipo: a.tipo || "", device_id: getDeviceId(), variant: TATA_VARIANT, ultimo_molde: getUltimoMolde() })
       }, 90000);
       if (res.status === 402) throw budgetErr();
       if (!res.ok) throw new Error("parabola " + res.status);
       var data = await res.json();
       var p = data && data.parabola ? String(data.parabola).trim() : "";
       if (!p) throw new Error("parabola vacía");
-      return p;
+      var molde = data && data.molde ? String(data.molde) : "";
+      if (molde) setUltimoMolde(molde);
+      return { p: p, molde: molde, variant: TATA_VARIANT };
     } catch (e) { if (isBudgetErr(e)) throw e; lastErr = e; }
   }
   throw lastErr;
@@ -1527,8 +1550,9 @@ function generateParabolaFlow(isExtra, tipo) {
     : "Estoy escribiendo tu historia solo para ti, dame un momentico...";
   var statusRow = addBubble('<span class="status-text">' + escapeHtml(statusText) + "</span>", "in");
   parabolaGen = { id: genId, since: Date.now(), isExtra: isExtra, tipo: tipo, statusRow: statusRow, retry: function () { generateParabolaFlow(isExtra, tipo); } };
-  tataParabola(payload).then(function (p) {
+  tataParabola(payload).then(function (r) {
     if (!parabolaGen || parabolaGen.id !== genId) return; // reintentado desde otro lado
+    var p = r.p;
     deliverParabola(p, function (urls) {
       if (parabolaGen && parabolaGen.id === genId) parabolaGen = null;
       var lista = getParabolas();
@@ -1538,7 +1562,7 @@ function generateParabolaFlow(isExtra, tipo) {
       tipos.push(tipo || "");
       tipos = tipos.slice(-10);
       saveMemory({ parabolas: lista, tipos: tipos, parabola: p, parabolaAt: Date.now(), desahogoCount: 0, offeredExtra: false });
-      logEvento("parabola_generada", { tipo: tipo || "" });
+      logEvento("parabola_generada", { tipo: tipo || "", variant: r.variant, molde: r.molde || "" });
       showParabolaBubble(p, urls && urls[0]);
       setTimeout(function () { showClosingSequence(lista.length); }, 1200);
     }, statusRow, function (done, total) {
