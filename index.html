@@ -343,6 +343,7 @@ function getModo() {
 }
 var TATA_MODO = getModo();
 var MODO_MODELO = (TATA_MODO === "modelo");
+if (MODO_MODELO) { try { var _tag = document.getElementById("beta-tag"); if (_tag) _tag.textContent = "alpha"; } catch (e) {} }
 /* Sube la memoria al servidor. Se llama con debounce desde saveMemory, nunca bloquea la UI. */
 var _syncTimer = null;
 function scheduleServerSync() {
