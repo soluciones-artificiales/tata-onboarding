@@ -275,7 +275,9 @@ function saveMemory(patch) {
     try { sessionStorage.setItem(MEM_KEY, json); } catch (e) {}
   } catch (e) { /* almacenamiento no disponible */ }
   // Servidor en segundo plano (debounce): si la red falla, lo local ya quedó guardado.
-  scheduleServerSync();
+  // En modo modelo NO se sincroniza desde aquí: la función tata-modelo es la
+  // dueña de la memoria en el servidor (lee y escribe ella misma cada turno).
+  if (typeof MODO_MODELO === "undefined" || !MODO_MODELO) scheduleServerSync();
 }
 function clearMemory() {
   try { localStorage.removeItem(MEM_KEY); } catch (e) {}
@@ -317,6 +319,30 @@ function setUltimoMolde(m) {
   try { if (m) localStorage.setItem(MOLDE_KEY, m); } catch (e) {}
 }
 var TATA_VARIANT = getVariant();
+/* ---------- Test guion vs modelo: modo pegajoso por dispositivo ----------
+   guion = flujo actual (pasos y frases fijas); modelo = un solo modelo
+   conversa de principio a fin (función tata-modelo). Solo español: esta
+   página es la ES. Override de prueba: ?modo=modelo o ?modo=guion. */
+var MODO_KEY = "tata-modo-v1";
+function getModo() {
+  try {
+    var q = null;
+    try { q = new URLSearchParams(location.search).get("modo"); } catch (e) {}
+    if (q === "modelo" || q === "guion") {
+      try { localStorage.setItem(MODO_KEY, q); } catch (e) {}
+      try { logEvento("modo_asignado", { modo: q, via: "enlace" }); } catch (e) {}
+      return q;
+    }
+    var v = localStorage.getItem(MODO_KEY);
+    if (v === "modelo" || v === "guion") return v;
+    v = Math.random() < 0.5 ? "modelo" : "guion";
+    try { localStorage.setItem(MODO_KEY, v); } catch (e) {}
+    try { logEvento("modo_asignado", { modo: v, via: "azar" }); } catch (e) {}
+    return v;
+  } catch (e) { return "guion"; }
+}
+var TATA_MODO = getModo();
+var MODO_MODELO = (TATA_MODO === "modelo");
 /* Sube la memoria al servidor. Se llama con debounce desde saveMemory, nunca bloquea la UI. */
 var _syncTimer = null;
 function scheduleServerSync() {
@@ -1318,6 +1344,7 @@ function renderTataVoiceReply(userText, tataText, onDone) {
 }
 
 function handleDesahogo(text, situacion) {
+  logEvento("chat_msg", { modo: "guion" });
   var telMatch = String(text).match(WHATSAPP_RE);
   if (telMatch) {
     var tel = telMatch[1].replace(/[^\d+]/g, "");
@@ -1740,7 +1767,85 @@ function renderHistory() {
   });
 }
 
+/* ---------- Brazo MODELO: un solo modelo conversa de principio a fin ----------
+   Sin pasos ni frases fijas: cada mensaje va a tata-modelo, que carga la
+   memoria en el servidor, conversa, dispara la primera parábola cuando ya
+   conoce a la persona y guarda todo antes de responder. */
+var modeloBusy = false;
+function startModelo() {
+  var mem = loadMemory();
+  if (!mem.nombre && !restoreAttempted) {
+    restoreFromServer(function () { startModelo(); });
+    return;
+  }
+  logEvento("page_open", { modo: "modelo" });
+  renderHistory();
+  inputEl.placeholder = "Escríbele a Tata";
+  setInputEnabled(false);
+  modeloTurno("");
+}
+function handleModelo(text) {
+  logEvento("chat_msg", { modo: "modelo" });
+  modeloTurno(text);
+}
+function modeloTurno(textoUsuario) {
+  if (modeloBusy) return;
+  modeloBusy = true;
+  waitingInput = false;
+  setInputEnabled(false);
+  showTyping();
+  fetchTimeout(SUPABASE_URL + "/functions/v1/tata-modelo", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ device_id: getDeviceId(), message: textoUsuario || "", lang: PAGE_LANG })
+  }, 150000).then(function (res) {
+    if (!res.ok) throw new Error("modelo " + res.status);
+    return res.json();
+  }).then(function (data) {
+    hideTyping();
+    modeloBusy = false;
+    var texto = String((data && data.texto) || "").trim();
+    if (texto) {
+      var row = addBubble(escapeHtml(texto), "in",
+        '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
+      wireLiveVoiceButton(row, texto);
+      logConversacion(textoUsuario || "", texto);
+    }
+    if (data && data.parabola) {
+      var p = String(data.parabola);
+      var prow = addBubble(escapeHtml(p), "in",
+        '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
+      wireLiveVoiceButton(prow, p);
+      logEvento("parabola_generada", { modo: "modelo", molde: data.molde || null });
+      var mem2 = loadMemory();
+      var ps = mem2.parabolas || []; ps.push(p);
+      var ts = mem2.tipos || []; ts.push("auto");
+      saveMemory({ parabolas: ps.slice(-10), tipos: ts.slice(-10), nombre: data.nombre || mem2.nombre || "" });
+      logConversacion("", p);
+    } else if (data && data.nombre) {
+      saveMemory({ nombre: data.nombre });
+    }
+    setInputEnabled(true);
+    waitingInput = true;
+    try { inputEl.focus(); } catch (e) {}
+  }).catch(function () {
+    hideTyping();
+    modeloBusy = false;
+    var row = addBubble("Se me fue la señal un momentico. ¿Me lo repites?", "in",
+      '<br><button class="retry-btn modelo-retry-btn"><span>Reintentar</span></button>');
+    var b = row.querySelector(".modelo-retry-btn");
+    if (b) b.addEventListener("click", function () { b.disabled = true; modeloTurno(textoUsuario); });
+    setInputEnabled(true);
+    waitingInput = true;
+  });
+}
+
 function startConversation() {
+  if (MODO_MODELO) { startModelo(); return; }
   var mem = loadMemory();
   if (!mem.nombre && !restoreAttempted) {
     // Sin memoria local: puede ser un dispositivo conocido con los datos borrados.
@@ -1748,7 +1853,7 @@ function startConversation() {
     restoreFromServer(function () { startConversation(); });
     return;
   }
-  logEvento("page_open", {});
+  logEvento("page_open", { modo: "guion" });
   var firstName = cleanFirstName(mem.nombre) || "mi amor";
   // Continuidad genuina: los últimos intercambios vuelven a verse antes del saludo.
   renderHistory();
@@ -2013,6 +2118,7 @@ function finishConversation() {
 
 function submitAnswer(text) {
   if (!waitingInput) return;
+  if (MODO_MODELO) { handleModelo(text); return; }
   if (extraState) { handleExtraState(text); return; }
   if (telefonoMode) { handleTelefonoAnswer(text); return; }
   if (desahogoMode) { handleDesahogo(text); return; }
