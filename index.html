@@ -1773,28 +1773,90 @@ function renderHistory() {
    memoria en el servidor, conversa, dispara la primera parábola cuando ya
    conoce a la persona y guarda todo antes de responder. */
 var modeloBusy = false;
+/* Sincroniza con el servidor conservando la conversación más larga: la del
+   servidor manda cuando un turno se completó allá y la respuesta se perdió;
+   la local manda cuando ya incluye la parábola pintada en su sitio. */
+function restaurarModelo(done) {
+  var antes = null;
+  try { antes = loadMemory(); } catch (e) {}
+  restoreFromServer(function () {
+    try {
+      var despues = loadMemory();
+      var convAntes = (antes && antes.conversacion) || [];
+      var convDespues = despues.conversacion || [];
+      if (convAntes.length > convDespues.length) {
+        despues.conversacion = convAntes;
+        var json = JSON.stringify(despues);
+        try { localStorage.setItem(MEM_KEY, json); } catch (e) {}
+        try { sessionStorage.setItem(MEM_KEY, json); } catch (e) {}
+      }
+    } catch (e) {}
+    done();
+  });
+}
+/* Si la última parábola guardada no está pintada en la conversación (el
+   servidor la guarda aparte), la muestra al final con su botón de voz. */
+function mostrarParabolaGuardada() {
+  try {
+    var mem = loadMemory();
+    var ps = mem.parabolas || [];
+    if (!ps.length) return;
+    var ultima = String(ps[ps.length - 1]);
+    var conv = mem.conversacion || [];
+    var ya = conv.some(function (m) { return m && typeof m.t === "string" && m.t.indexOf(ultima.slice(0, 60)) >= 0; });
+    if (ya) return;
+    var row = addBubble(escapeHtml(ultima), "in",
+      '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
+    wireLiveVoiceButton(row, ultima);
+  } catch (e) {}
+}
 function startModelo() {
-  var mem = loadMemory();
-  if (!mem.nombre && !restoreAttempted) {
-    restoreFromServer(function () { startModelo(); });
+  // En este brazo el servidor es la verdad: SIEMPRE se sincroniza antes de
+  // pintar. Así, si un turno se completó en el servidor pero la respuesta se
+  // perdió (señal, timeout), al volver aparece lo que Tata ya dijo, en vez
+  // de quedarse la pantalla pegada esperando un turno nuevo.
+  if (!restoreAttempted) {
+    restaurarModelo(function () { startModelo(); });
     return;
   }
   logEvento("page_open", { modo: "modelo" });
   renderHistory();
+  mostrarParabolaGuardada();
   inputEl.placeholder = "Escríbele a Tata";
-  setInputEnabled(false);
+  var mem = loadMemory();
+  if (mem.conversacion && mem.conversacion.length) {
+    // Ya hay conversación: NO se dispara un turno nuevo al abrir/refrescar.
+    // La persona sigue escribiendo y el servidor retoma con su memoria.
+    setInputEnabled(true);
+    waitingInput = true;
+    return;
+  }
+  setInputEnabled(true);
+  waitingInput = true;
   modeloTurno("");
 }
+/* La persona puede seguir escribiendo mientras Tata piensa, como en un chat
+   de verdad: los mensajes se encolan y se procesan en orden, en lotes.
+   El input NUNCA se bloquea en este brazo. */
+var modeloCola = [];
 function handleModelo(text) {
   logEvento("chat_msg", { modo: "modelo" });
-  modeloTurno(text);
+  modeloCola.push(text);
+  procesarColaModelo();
+}
+function procesarColaModelo() {
+  if (modeloBusy) return;
+  if (!modeloCola.length) return;
+  var lote = modeloCola.splice(0, modeloCola.length).join("\n");
+  modeloTurno(lote);
 }
 function modeloTurno(textoUsuario) {
   if (modeloBusy) return;
   modeloBusy = true;
-  waitingInput = false;
-  setInputEnabled(false);
+  waitingInput = true;
   showTyping();
+  var convAntes = 0;
+  try { convAntes = (loadMemory().conversacion || []).length; } catch (e) {}
   fetchTimeout(SUPABASE_URL + "/functions/v1/tata-modelo", {
     method: "POST",
     headers: {
@@ -1830,18 +1892,33 @@ function modeloTurno(textoUsuario) {
     } else if (data && data.nombre) {
       saveMemory({ nombre: data.nombre });
     }
-    setInputEnabled(true);
     waitingInput = true;
-    try { inputEl.focus(); } catch (e) {}
+    procesarColaModelo();
   }).catch(function () {
     hideTyping();
-    modeloBusy = false;
-    var row = addBubble("Se me fue la señal un momentico. ¿Me lo repites?", "in",
-      '<br><button class="retry-btn modelo-retry-btn"><span>Reintentar</span></button>');
-    var b = row.querySelector(".modelo-retry-btn");
-    if (b) b.addEventListener("click", function () { b.disabled = true; modeloTurno(textoUsuario); });
-    setInputEnabled(true);
-    waitingInput = true;
+    // Recuperación primero: el servidor guarda ANTES de responder, así que
+    // si la respuesta se perdió en el camino, la conversación real ya avanzó
+    // allá. Se sincroniza y, si avanzó, se repinta sin mostrar error.
+    restaurarModelo(function () {
+      var convDespues = 0;
+      try { convDespues = (loadMemory().conversacion || []).length; } catch (e) {}
+      modeloBusy = false;
+      if (convDespues > convAntes) {
+        var box = document.getElementById("messages");
+        if (box) box.innerHTML = "";
+        renderHistory();
+        mostrarParabolaGuardada();
+        waitingInput = true;
+        procesarColaModelo();
+        return;
+      }
+      var row = addBubble("Se me fue la señal un momentico. ¿Me lo repites?", "in",
+        '<br><button class="retry-btn modelo-retry-btn"><span>Reintentar</span></button>');
+      var b = row.querySelector(".modelo-retry-btn");
+      if (b) b.addEventListener("click", function () { b.disabled = true; modeloTurno(textoUsuario); });
+      waitingInput = true;
+      procesarColaModelo();
+    });
   });
 }
 
