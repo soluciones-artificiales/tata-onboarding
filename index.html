@@ -172,7 +172,8 @@
     border: none; border-radius: 50%;
     background: #00a884;
     display: flex; align-items: center; justify-content: center;
-    cursor: pointer; flex-shrink: 0;
+    cursor: pointer;
+    flex-shrink: 0;
   }
   #mic-btn:active { background: #008f6f; }
   #mic-btn:disabled { background: #3a4a52; cursor: default; }
@@ -325,21 +326,17 @@ var TATA_VARIANT = getVariant();
    página es la ES. Override de prueba: ?modo=modelo o ?modo=guion. */
 var MODO_KEY = "tata-modo-v1";
 function getModo() {
+  // 2026-10-20: Diego decidió apagar beta. Todos entran a alpha (modelo),
+  // incluidos los dispositivos que tenían "guion" pegajoso guardado.
   try {
-    var q = null;
-    try { q = new URLSearchParams(location.search).get("modo"); } catch (e) {}
-    if (q === "modelo" || q === "guion") {
-      try { localStorage.setItem(MODO_KEY, q); } catch (e) {}
-      try { logEvento("modo_asignado", { modo: q, via: "enlace" }); } catch (e) {}
-      return q;
+    var prev = null;
+    try { prev = localStorage.getItem(MODO_KEY); } catch (e) {}
+    if (prev !== "modelo") {
+      try { localStorage.setItem(MODO_KEY, "modelo"); } catch (e) {}
+      try { logEvento("modo_asignado", { modo: "modelo", via: "todos-alpha" }); } catch (e) {}
     }
-    var v = localStorage.getItem(MODO_KEY);
-    if (v === "modelo" || v === "guion") return v;
-    v = Math.random() < 0.5 ? "modelo" : "guion";
-    try { localStorage.setItem(MODO_KEY, v); } catch (e) {}
-    try { logEvento("modo_asignado", { modo: v, via: "azar" }); } catch (e) {}
-    return v;
-  } catch (e) { return "guion"; }
+    return "modelo";
+  } catch (e) { return "modelo"; }
 }
 var TATA_MODO = getModo();
 var MODO_MODELO = (TATA_MODO === "modelo");
@@ -1149,7 +1146,7 @@ function retellParabola(userText, forcedTipo) {
   tataRetellParabola(mem.nombre, last, targetTipo).then(function (p) {
     if (!parabolaGen || parabolaGen.id !== genId) return; // reintentado desde otro lado
     deliverParabola(p, function (urls) {
-      if (parabolaGen && parabolaGen.id !== genId) parabolaGen = null;
+      if (parabolaGen && parabolaGen.id === genId) parabolaGen = null;
       var l2 = getParabolas();
       l2.push(p);
       l2 = l2.slice(-10);
