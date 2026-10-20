@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abriendo a Tata…</title>
+<meta name="robots" content="noindex">
+<style>
+  body{font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:#111;color:#fff;margin:0;display:flex;min-height:100dvh;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
+  .card{max-width:420px;text-align:center}
+  h1{font-size:22px;margin:0 0 10px}
+  p{opacity:.88;line-height:1.55;font-size:16px}
+  .btn{display:inline-block;margin-top:14px;background:#25D366;color:#111;font-weight:700;padding:14px 22px;border-radius:10px;text-decoration:none;font-size:17px}
+  .ghost{background:transparent;color:#fff;border:1px solid #555;font-weight:400}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Te estoy llevando con Tata</h1>
+  <p id="msg">Un segundo…</p>
+  <p><a class="btn" id="btn" href="https://soytata.xyz/">Hablar con Tata</a></p>
+  <p><a class="btn ghost" id="seguir" href="https://soytata.xyz/" style="display:none">Seguir aquí sin cambiar de navegador</a></p>
+</div>
+<script>
+(function () {
+  var destino = "https://soytata.xyz/" + location.search;
+  var ua = navigator.userAgent || "";
+  var enIG = /Instagram|FBAN|FBAV|FB_IAB/i.test(ua);
+  var android = /Android/i.test(ua);
+  var btn = document.getElementById("btn");
+  var msg = document.getElementById("msg");
+  var seguir = document.getElementById("seguir");
+  btn.href = destino;
+  seguir.href = destino;
+  if (!enIG) { location.replace(destino); return; }
+  if (android) {
+    var intent = "intent://soytata.xyz/" + location.search + "#Intent;scheme=https;package=com.android.chrome;end";
+    btn.href = intent;
+    btn.textContent = "Abrir en Chrome y hablar con Tata";
+    msg.innerHTML = "Estás dentro de Instagram. Tata se escucha mejor en tu navegador: toca el botón y se abre en Chrome.";
+    seguir.style.display = "inline-block";
+    setTimeout(function () { try { location.href = intent; } catch (e) {} }, 600);
+  } else {
+    msg.innerHTML = "Estás dentro de Instagram. Para abrir a Tata en Safari, toca los <strong>⋯</strong> de arriba a la derecha y elige <strong>Abrir en el navegador</strong>. O sigue aquí: Tata también te escucha.";
+    btn.textContent = "Seguir aquí con Tata";
+  }
+})();
+</script>
+</body>
+</html>
