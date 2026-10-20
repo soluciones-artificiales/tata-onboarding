@@ -45,6 +45,14 @@
     overflow: hidden;
   }
   #avatar img { width: 100%; height: 100%; object-fit: cover; }
+  /* La anónima no tiene foto: su avatar es una onda de voz. */
+  #avatar .voz-ondas { display: flex; align-items: center; justify-content: center; gap: 3px; height: 100%; }
+  #avatar .voz-ondas span { display: block; width: 4px; border-radius: 2px; background: #fff; }
+  #avatar .voz-ondas span:nth-child(1) { height: 10px; }
+  #avatar .voz-ondas span:nth-child(2) { height: 18px; }
+  #avatar .voz-ondas span:nth-child(3) { height: 27px; }
+  #avatar .voz-ondas span:nth-child(4) { height: 16px; }
+  #avatar .voz-ondas span:nth-child(5) { height: 9px; }
   #header-text { display: flex; flex-direction: column; line-height: 1.25; }
   #header-name { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
   #beta-tag {
@@ -341,6 +349,48 @@ function getModo() {
 var TATA_MODO = getModo();
 var MODO_MODELO = (TATA_MODO === "modelo");
 if (MODO_MODELO) { try { var _tag = document.getElementById("beta-tag"); if (_tag) _tag.textContent = "alpha"; } catch (e) {} }
+/* Variante de experiencia (2026-10-20, decisión de Diego): "carlota" es la
+   Tata con foto de siempre; "anonima" es la Tata sin foto, pura voz (la voz
+   de Vesper, la de los cuentos virales), que se presenta con su saludo en
+   audio y promete WhatsApp desde el principio. Sorteo pegajoso SOLO para
+   dispositivos nuevos: quien ya tiene conversación con Carlota se queda
+   con Carlota. El cerebro es el mismo (tata-modelo) en las dos. */
+var VARIANTE_KEY = "tata-variante-v1";
+function getVarianteTata() {
+  try {
+    var q = null;
+    try { q = new URLSearchParams(location.search).get("variante"); } catch (e) {}
+    if (q === "anonima" || q === "carlota") {
+      try { localStorage.setItem(VARIANTE_KEY, q); } catch (e) {}
+      try { logEvento("variante_asignada", { variante: q, via: "enlace" }); } catch (e) {}
+      return q;
+    }
+    var v = null;
+    try { v = localStorage.getItem(VARIANTE_KEY); } catch (e) {}
+    if (v === "anonima" || v === "carlota") return v;
+    var conocido = false;
+    try {
+      var m = loadMemory();
+      if (m && m.conversacion && m.conversacion.length) conocido = true;
+    } catch (e) {}
+    v = conocido ? "carlota" : (Math.random() < 0.5 ? "anonima" : "carlota");
+    try { localStorage.setItem(VARIANTE_KEY, v); } catch (e) {}
+    try { logEvento("variante_asignada", { variante: v, via: conocido ? "previo" : "azar" }); } catch (e) {}
+    return v;
+  } catch (e) { return "carlota"; }
+}
+var TATA_VARIANTE = getVarianteTata();
+var MODO_ANONIMA = (TATA_VARIANTE === "anonima");
+if (MODO_ANONIMA) {
+  try {
+    var _tagA = document.getElementById("beta-tag");
+    if (_tagA) _tagA.textContent = "beta";
+    var _avA = document.getElementById("avatar");
+    if (_avA) _avA.innerHTML = '<span class="voz-ondas"><span></span><span></span><span></span><span></span><span></span></span>';
+    var _stA = document.getElementById("header-status");
+    if (_stA) _stA.textContent = "pura voz · en línea";
+  } catch (e) {}
+}
 /* Sube la memoria al servidor. Se llama con debounce desde saveMemory, nunca bloquea la UI. */
 var _syncTimer = null;
 function scheduleServerSync() {
@@ -1815,6 +1865,26 @@ function mostrarParabolaGuardada() {
     wireLiveVoiceButton(row, ultima);
   } catch (e) {}
 }
+/* Arranque de la anónima: no dispara turno al servidor al abrir. Su
+   presentación es el saludo en audio con la voz de Vesper (archivo del
+   repo), que queda guardado como el primer turno de la conversación.
+   Cuando la persona escribe, su mensaje va directo a tata-modelo. */
+function startAnonima() {
+  logEvento("page_open", { modo: "modelo", variante: "anonima" });
+  renderHistory();
+  inputEl.placeholder = "Escríbele a Tata";
+  setInputEnabled(true);
+  waitingInput = true;
+  var mem = loadMemory();
+  if (mem.conversacion && mem.conversacion.length) return;
+  mostrarSaludoAnonima();
+}
+function mostrarSaludoAnonima() {
+  var textoSaludo = "Epa, hola. Soy Tata. Sí, la de los cuentos, la misma voz que has estado escuchando en las historias. Yo no tengo foto: soy pura voz. Y estoy aquí para lo que necesites: para contarte un cuento, para hablar de lo que estás construyendo, o de lo que te preocupa. Si quieres, seguimos por aquí. Y también me puedes escribir por WhatsApp, cuando quieras. Cuéntame: ¿qué estás construyendo tú?";
+  addBubble(escapeHtml(textoSaludo), "in",
+    '<br><audio controls preload="metadata" src="saludo-tata-voz.mp3" style="width:100%;margin-top:6px"></audio>');
+  logConversacion("", textoSaludo);
+}
 function startModelo() {
   // En este brazo el servidor es la verdad: SIEMPRE se sincroniza antes de
   // pintar. Así, si un turno se completó en el servidor pero la respuesta se
@@ -1824,6 +1894,7 @@ function startModelo() {
     restaurarModelo(function () { startModelo(); });
     return;
   }
+  if (MODO_ANONIMA) { startAnonima(); return; }
   logEvento("page_open", { modo: "modelo" });
   renderHistory();
   mostrarParabolaGuardada();
