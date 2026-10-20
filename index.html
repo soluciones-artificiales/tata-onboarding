@@ -1876,14 +1876,75 @@ function startAnonima() {
   setInputEnabled(true);
   waitingInput = true;
   var mem = loadMemory();
-  if (mem.conversacion && mem.conversacion.length) return;
+  if (mem.conversacion && mem.conversacion.length) { mostrarPedidoTelefono(); return; }
   mostrarSaludoAnonima();
 }
 function mostrarSaludoAnonima() {
-  var textoSaludo = "Epa, hola. Soy Tata. Sí, la de los cuentos, la misma voz que has estado escuchando en las historias. Yo no tengo foto: soy pura voz. Y estoy aquí para lo que necesites: para contarte un cuento, para hablar de lo que estás construyendo, o de lo que te preocupa. Si quieres, seguimos por aquí. Y también me puedes escribir por WhatsApp, cuando quieras. Cuéntame: ¿qué estás construyendo tú?";
+  var textoSaludo = "Epa, hola. Soy Tata, la de los cuentos, la misma voz que has estado escuchando en las historias. Yo no tengo foto: soy pura voz. Y no estoy aquí solo a contar cuentos: estoy para ayudarte con lo que necesites. Por eso te pido de una tu número de WhatsApp: déjamelo aquí abajito y te escribo por ahí, para mostrarte todo lo que puedo hacer por ti. Y si prefieres seguir por aquí, también. Cuéntame: ¿qué estás construyendo tú?";
   addBubble(escapeHtml(textoSaludo), "in",
     '<br><audio controls preload="metadata" src="saludo-tata-voz.mp3" style="width:100%;margin-top:6px"></audio>');
   logConversacion("", textoSaludo);
+  mostrarPedidoTelefono();
+}
+/* La anónima pide el WhatsApp DE UNA (decisión de Diego, 2026-10-20): el
+   número es la puerta para mostrarle a la persona cómo puede ayudarla.
+   El guardado usa la misma función tata-telefono del resto de la página.
+   Quien lo omite sigue chateando normal; no se le vuelve a pedir. */
+function mostrarPedidoTelefono() {
+  var mem = loadMemory();
+  if (mem.anonima_tlf_estado) return;
+  var formHtml = '<form class="tlf-form" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
+    + '<input type="tel" class="tlf-input" placeholder="Tu número de WhatsApp" autocomplete="tel" style="flex:1;min-width:150px;padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.25);font-size:15px;color:#111;background:#fff">'
+    + '<button type="submit" class="tlf-send" style="padding:9px 14px;border-radius:8px;border:none;background:#128C7E;color:#fff;font-size:15px;font-weight:600">Enviar</button>'
+    + '<button type="button" class="tlf-skip" style="padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.25);background:transparent;color:inherit;font-size:13px">Seguir aquí sin WhatsApp</button>'
+    + '<div class="tlf-msg" style="flex-basis:100%;font-size:13px"></div></form>';
+  var row = addBubble("Déjame tu número aquí y te escribo por WhatsApp para mostrarte cómo puedo ayudarte:", "in", formHtml);
+  var form = row.querySelector(".tlf-form");
+  if (!form) return;
+  form.addEventListener("submit", function (ev) { ev.preventDefault(); enviarTelefonoAnonima(row); });
+  var skip = row.querySelector(".tlf-skip");
+  if (skip) skip.addEventListener("click", function () { omitirTelefonoAnonima(row); });
+}
+async function enviarTelefonoAnonima(row) {
+  var input = row.querySelector(".tlf-input");
+  var msg = row.querySelector(".tlf-msg");
+  var btn = row.querySelector(".tlf-send");
+  var digitos = String((input && input.value) || "").replace(/\D/g, "");
+  if (digitos.length < 7 || digitos.length > 15) {
+    if (msg) msg.textContent = "Ese número no se ve completo. Revísalo, o sigue aquí sin WhatsApp.";
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = "Enviando..."; }
+  try {
+    var res = await fetchTimeout(SUPABASE_URL + "/functions/v1/tata-telefono", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ telefono: digitos, lang: PAGE_LANG, device_id: getDeviceId() })
+    }, 15000);
+    if (!res.ok) throw new Error("telefono " + res.status);
+    logEvento("telefono_capturado", { variante: "anonima" });
+    saveMemory({ anonima_tlf_estado: "capturado" });
+    var form = row.querySelector(".tlf-form");
+    if (form) form.remove();
+    var confirma = "Listo, ya tengo tu número. Te escribo por WhatsApp para mostrarte todo lo que puedo hacer por ti. Y por aquí seguimos hablando de lo que quieras.";
+    addBubble(escapeHtml(confirma), "in", "");
+    logConversacion("", confirma);
+  } catch (e) {
+    logEvento("telefono_error", { variante: "anonima" });
+    if (msg) msg.textContent = "No me entró ahorita. Inténtalo de nuevo, o sigue aquí sin WhatsApp.";
+    if (btn) { btn.disabled = false; btn.textContent = "Enviar"; }
+  }
+}
+function omitirTelefonoAnonima(row) {
+  logEvento("telefono_omitido", { variante: "anonima" });
+  saveMemory({ anonima_tlf_estado: "omitido" });
+  var form = row.querySelector(".tlf-form");
+  if (form) form.remove();
+  addBubble("Perfecto, seguimos por aquí. Cuando quieras, me lo dejas.", "in", "");
 }
 function startModelo() {
   // En este brazo el servidor es la verdad: SIEMPRE se sincroniza antes de
