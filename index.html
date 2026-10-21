@@ -2440,7 +2440,7 @@ function onSend() {
   addBubble(escapeHtml(text), "out");
   inputEl.value = "";
   syncMicSend();
-  if (HELP_Q_RE.test(text) && waitingInput && !telefonoMode && !desahogoMode && !extraState) { answerHelpQuestion(); return; }
+  if (!MODO_MODELO && HELP_Q_RE.test(text) && waitingInput && !telefonoMode && !desahogoMode && !extraState) { answerHelpQuestion(); return; }
   enviarOEncolar(text);
 }
 
