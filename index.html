@@ -1915,20 +1915,31 @@ function startAnonima() {
   setInputEnabled(true);
   waitingInput = true;
   var mem = loadMemory();
-  if (mem.conversacion && mem.conversacion.length) { mostrarPedidoTelefono(); return; }
+  if (mem.conversacion && mem.conversacion.length) return;
   mostrarSaludoAnonima();
 }
 function mostrarSaludoAnonima() {
-  var textoSaludo = "Epa, hola. Soy Tata, la de los cuentos, la misma voz que has estado escuchando en las historias. Yo no tengo foto: soy pura voz. Y no estoy aquí solo a contar cuentos: estoy para ayudarte con lo que necesites. Por eso te pido de una tu número de WhatsApp: déjamelo aquí abajito y te escribo por ahí, para mostrarte todo lo que puedo hacer por ti. Y si prefieres seguir por aquí, también. Cuéntame: ¿qué estás construyendo tú?";
+  var textoSaludo = "Epa, hola. Soy Tata, la de los cuentos, la misma voz que has estado escuchando en las historias. Yo no tengo foto: soy pura voz. Y no estoy aquí solo a contar cuentos: estoy para ayudarte con lo que traigas encima, una idea que estés construyendo, una cuenta que no te cuadra, o algo que te quite el sueño. Primero quiero escucharte a ti. Cuéntame: ¿qué estás construyendo tú, o qué te trae por aquí?";
   addBubble(escapeHtml(textoSaludo), "in",
-    '<br><audio controls preload="metadata" src="saludo-tata-voz.mp3" style="width:100%;margin-top:6px"></audio>');
+    '<br><audio controls preload="metadata" src="saludo-anonima-v3.mp3" style="width:100%;margin-top:6px"></audio>');
   logConversacion("", textoSaludo);
+}
+/* La anónima DA PRIMERO y pide el teléfono DESPUÉS del primer intercambio
+   (decisión de Diego, 2026-10-21; revierte el pedido de una del 2026-10-20:
+   en 48 h, 57 de 70 personas no escribieron ni una palabra, y el precipicio
+   está en la puerta, no en la conversación). El formulario aparece una sola
+   vez, tras la primera respuesta de Tata, y solo si la persona aún no lo
+   dio ni lo omitió. El guardado usa la misma función tata-telefono del
+   resto de la página. Quien lo omite sigue chateando normal. */
+var pedidoTelefonoMostrado = false;
+function quizasPedirTelefonoTrasIntercambio() {
+  if (!MODO_ANONIMA) return;
+  if (pedidoTelefonoMostrado) return;
+  var mem = loadMemory();
+  if (mem.anonima_tlf_estado) return;
+  pedidoTelefonoMostrado = true;
   mostrarPedidoTelefono();
 }
-/* La anónima pide el WhatsApp DE UNA (decisión de Diego, 2026-10-20): el
-   número es la puerta para mostrarle a la persona cómo puede ayudarla.
-   El guardado usa la misma función tata-telefono del resto de la página.
-   Quien lo omite sigue chateando normal; no se le vuelve a pedir. */
 function mostrarPedidoTelefono() {
   var mem = loadMemory();
   if (mem.anonima_tlf_estado) return;
@@ -1937,7 +1948,7 @@ function mostrarPedidoTelefono() {
     + '<button type="submit" class="tlf-send" style="padding:9px 14px;border-radius:8px;border:none;background:#128C7E;color:#fff;font-size:15px;font-weight:600">Enviar</button>'
     + '<button type="button" class="tlf-skip" style="padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.25);background:transparent;color:inherit;font-size:13px">Seguir aquí sin WhatsApp</button>'
     + '<div class="tlf-msg" style="flex-basis:100%;font-size:13px"></div></form>';
-  var row = addBubble("Déjame tu número aquí y te escribo por WhatsApp para mostrarte cómo puedo ayudarte:", "in", formHtml);
+  var row = addBubble("Si quieres, déjame tu WhatsApp aquí y seguimos por ahí: por allá sí puedo escribirte yo a ti, con historias como estas.", "in", formHtml);
   var form = row.querySelector(".tlf-form");
   if (!form) return;
   form.addEventListener("submit", function (ev) { ev.preventDefault(); enviarTelefonoAnonima(row); });
@@ -2068,6 +2079,7 @@ function modeloTurno(textoUsuario) {
     } else if (data && data.nombre) {
       saveMemory({ nombre: data.nombre });
     }
+    quizasPedirTelefonoTrasIntercambio();
     waitingInput = true;
     procesarColaModelo();
   }).catch(function () {
