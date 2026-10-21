@@ -131,8 +131,7 @@
 /* ============ Config ============ */
 var SUPABASE_URL = "https://sjsnnumwshvtxahpdszq.supabase.co";
 var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqc25udW13c2h2dHhhaHBkc3pxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNTE1MTgsImV4cCI6MjEwNjkyNzUxOH0.3PnzdavX4l2o8Q2Zj1jwwZtEDa3FiZnFGEJgNNREihc";
-var PRICE_IN_MTOK = 1.25;   // USD por millón de tokens de entrada (precio público Meta)
-var PRICE_OUT_MTOK = 4.25;  // USD por millón de tokens de salida (precio público Meta)
+var MODEL_PRICES = {"muse-spark-1.3":{input:1.25,output:4.25},"muse-wonder-1.0":{input:4,output:20}}; // Standard, 21oct2026; conservative: no cached-token discount
 var ADMIN_SECRET = "";      // la clave que escribe el dueño; viaja como secret a tata-admin
 
 /* ============ Gate ============
@@ -287,6 +286,7 @@ function render(eventos, usage, memoria) {
   var retells = countEv("retell", false), repites = countEv("repite_historia", false), shares = countEv("compartir_audio", false);
   var desahogos = countEv("desahogo_msg", false), errores = countEv("error_generacion", false);
   var onbFin = countEv("onboarding_fin", false);
+  errores += countEv("modelo_error",false);
 
   var tipoCount = {};
   eventos.forEach(function (e) {
@@ -312,20 +312,18 @@ function render(eventos, usage, memoria) {
   function pct(a, b) { return b ? Math.round(100 * a / b) + "%" : "—"; }
 
   /* ---- Costos ---- */
-  var tokIn = 0, tokOut = 0, ttsChars = 0;
-  var perDay = {};
-  days.forEach(function (d) { perDay[d] = { tin: 0, tout: 0 }; });
-  usage.forEach(function (u) {
-    if (u.modelo === "muse-spark-1.3") {
-      tokIn += u.prompt_tokens || 0;
-      tokOut += u.completion_tokens || 0;
-      var dk = dayKey(u.created_at);
-      if (perDay[dk]) { perDay[dk].tin += u.prompt_tokens || 0; perDay[dk].tout += u.completion_tokens || 0; }
-    }
-    if (u.funcion === "tts") ttsChars += u.caracteres || 0;
+  var tokIn=0,tokOut=0,ttsChars=0,totalUSD=0,unknownModels=0;
+  var perDay={}; days.forEach(function(d){perDay[d]={tin:0,tout:0,cost:0};});
+  usage.forEach(function(u){
+    var price=MODEL_PRICES[u.modelo];
+    if(price){
+      var tin=Number(u.prompt_tokens)||0,tout=Number(u.completion_tokens)||0;
+      var cost=tin/1e6*price.input+tout/1e6*price.output;
+      tokIn+=tin;tokOut+=tout;totalUSD+=cost;
+      var dk=dayKey(u.created_at);if(perDay[dk]){perDay[dk].tin+=tin;perDay[dk].tout+=tout;perDay[dk].cost+=cost;}
+    } else if(u.prompt_tokens || u.completion_tokens){unknownModels++;}
+    if(u.funcion==='tts')ttsChars+=u.caracteres||0;
   });
-  function usd(tin, tout) { return tin / 1e6 * PRICE_IN_MTOK + tout / 1e6 * PRICE_OUT_MTOK; }
-  var totalUSD = usd(tokIn, tokOut);
 
   /* ---- KPIs ---- */
   var kpis = [
@@ -362,16 +360,16 @@ function render(eventos, usage, memoria) {
   /* ---- Costos ---- */
   var costRows = days.map(function (d) {
     var t = perDay[d];
-    return '<div class="costline"><span>' + dayLabel(d) + ' <span style="color:#505966">(' + fmt(t.tin) + ' in / ' + fmt(t.tout) + ' out)</span></span><b>' + money(usd(t.tin, t.tout)) + '</b></div>';
+    return '<div class="costline"><span>' + dayLabel(d) + ' <span style="color:#505966">(' + fmt(t.tin) + ' in / ' + fmt(t.tout) + ' out)</span></span><b>' + money(t.cost) + '</b></div>';
   }).join("");
   document.getElementById("costs").innerHTML =
     '<div class="costline"><span>Tokens entrada (total)</span><b>' + fmt(tokIn) + '</b></div>' +
     '<div class="costline"><span>Tokens salida (total)</span><b>' + fmt(tokOut) + '</b></div>' +
-    '<div class="costline"><span><b>Costo Meta API (total)</b></span><b>' + money(totalUSD) + '</b></div>' +
+    '<div class="costline"><span><b>Costo Meta estimado (registros recibidos)</b></span><b>' + money(totalUSD) + '</b></div>' +
     '<div class="costline"><span>Costo por usuario</span><b>' + money(totalUsers ? totalUSD / totalUsers : 0) + '</b></div>' +
     '<div class="costline"><span>Caracteres de voz (ElevenLabs)</span><b>' + fmt(ttsChars) + '</b></div>' +
     costRows +
-    '<div class="note">Costos Meta calculados con precio público: $' + PRICE_IN_MTOK + '/MTok entrada, $' + PRICE_OUT_MTOK + '/MTok salida. La voz se cobra aparte en ElevenLabs (ver su panel).</div>';
+    '<div class="note">Standard, 21oct2026: Spark $1,25/$4,25 y Wonder $4/$20 por millón de tokens de entrada/salida. Sin descuento de caché. Estimación de los registros recibidos; no es factura ni saldo del límite mensual. Voz aparte en ElevenLabs. Registros de modelos sin tarifa: ' + unknownModels + '.</div>';
 
   /* ---- Embudo ---- */
   var tiposHtml = Object.keys(tipoCount).map(function (t) {
@@ -379,6 +377,10 @@ function render(eventos, usage, memoria) {
   }).join("") || '<div class="note">Sin datos todavía.</div>';
   document.getElementById("funnel").innerHTML =
     '<div class="costline"><span>Abrir la página</span><b>' + fmt(fOpen) + '</b></div>' +
+    '<div class="costline"><span>Dispositivos que enviaron mensaje</span><b>' + fmt(distinctDevices("chat_msg")) + '</b></div>' +
+    '<div class="costline"><span>Dispositivos con respuesta visible (nuevo flujo)</span><b>' + fmt(distinctDevices("modelo_respuesta_visible")) + '</b></div>' +
+    '<div class="costline"><span>Dispositivos con teléfono registrado por evento</span><b>' + fmt(distinctDevices("telefono_capturado")) + '</b></div>' +
+    '<div class="note">Conteos del período recibido, no una cohorte de Instagram. Eventos de teléfono pueden faltar; comprobar números únicos en la base. Respuesta visible se mide desde el cambio del 21oct.</div>' +
     '<div class="costline"><span>Terminar onboarding</span><b>' + fmt(fFin) + ' (' + pct(fFin, fOpen) + ')</b></div>' +
     '<div class="costline"><span>Recibir primera parábola</span><b>' + fmt(fPar) + ' (' + pct(fPar, fOpen) + ')</b></div>' +
     '<div class="note">Parábolas por tipo (desde eventos):</div>' + tiposHtml;
@@ -413,3 +415,4 @@ function showUser(u) {
 </script>
 </body>
 </html>
+
