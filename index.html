@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Tata (beta)</title>
+<title>Tata — conversemos</title>
+<meta name="tata-release" content="wonder-2026-10-21">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -248,6 +249,8 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const messagesEl = document.getElementById("messages");
 const inputEl = document.getElementById("text-input");
 const sendBtn = document.getElementById("send-btn");
+try { inputEl.value = localStorage.getItem("tata-draft-v2") || ""; } catch(e) {}
+inputEl.addEventListener("input", function(){try{localStorage.setItem("tata-draft-v2",inputEl.value);}catch(e){}});
 const micBtn = document.getElementById("mic-btn");
 const recUi = document.getElementById("rec-ui");
 const recStop = document.getElementById("rec-stop");
@@ -433,12 +436,14 @@ mostrarEscapeWebview();
 /* Sube la memoria al servidor. Se llama con debounce desde saveMemory, nunca bloquea la UI. */
 var _syncTimer = null;
 function scheduleServerSync() {
+  if (MODO_MODELO) return; // This conversation is committed atomically by tata-modelo.
   try {
     if (_syncTimer) clearTimeout(_syncTimer);
     _syncTimer = setTimeout(function () { _syncTimer = null; syncMemoryToServer(); }, 2000);
   } catch (e) {}
 }
 function syncMemoryToServer() {
+  if (MODO_MODELO) return;
   try {
     var mem = loadMemory();
     var payload = {
@@ -480,9 +485,9 @@ function restoreFromServer(done) {
       return res.json();
     }).then(function (data) {
       var r = data && data.row;
-      if (r) {
+      if (r && !(MODO_MODELO && (modeloBusy || localStorage.getItem("tata-pending-turn-v2")))) {
         try {
-          var m = {};
+          var m = loadMemory() || {};
           if (r.nombre) m.nombre = r.nombre;
           if (r.answers) m.answers = r.answers;
           if (r.parabolas) m.parabolas = r.parabolas;
@@ -1919,11 +1924,9 @@ function startAnonima() {
   mostrarSaludoAnonima();
 }
 function mostrarSaludoAnonima() {
-  var textoSaludo = "Epa, hola. Soy Tata, la de los cuentos, la misma voz que has estado escuchando en las historias. Yo no tengo foto: soy pura voz. Y no estoy aquí solo a contar cuentos: estoy para ayudarte con lo que traigas encima, una idea que estés construyendo, una cuenta que no te cuadra, o algo que te quite el sueño. Primero quiero escucharte a ti. Cuéntame: ¿qué estás construyendo tú, o qué te trae por aquí?";
-  addBubble(escapeHtml(textoSaludo), "in",
-    '<br><audio controls preload="metadata" src="saludo-anonima-v3.mp3" style="width:100%;margin-top:6px"></audio>');
-  logConversacion("", textoSaludo);
+  addBubble("Epa, soy Tata. Podemos hablar de lo que traes en la cabeza o resolver algo juntos. ¿Qué necesitas hoy?", "in", "");
 }
+
 /* La anónima DA PRIMERO y pide el teléfono DESPUÉS del primer intercambio
    (decisión de Diego, 2026-10-21; revierte el pedido de una del 2026-10-20:
    en 48 h, 57 de 70 personas no escribieron ni una palabra, y el precipicio
@@ -1933,7 +1936,6 @@ function mostrarSaludoAnonima() {
    resto de la página. Quien lo omite sigue chateando normal. */
 var pedidoTelefonoMostrado = false;
 function quizasPedirTelefonoTrasIntercambio() {
-  if (!MODO_ANONIMA) return;
   if (pedidoTelefonoMostrado) return;
   var mem = loadMemory();
   if (mem.anonima_tlf_estado) return;
@@ -1945,10 +1947,10 @@ function mostrarPedidoTelefono() {
   if (mem.anonima_tlf_estado) return;
   var formHtml = '<form class="tlf-form" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
     + '<input type="tel" class="tlf-input" placeholder="Tu número de WhatsApp" autocomplete="tel" style="flex:1;min-width:150px;padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.25);font-size:15px;color:#111;background:#fff">'
-    + '<button type="submit" class="tlf-send" style="padding:9px 14px;border-radius:8px;border:none;background:#128C7E;color:#fff;font-size:15px;font-weight:600">Enviar</button>'
+    + '<button type="submit" class="tlf-send" style="padding:9px 14px;border-radius:8px;border:none;background:#128C7E;color:#fff;font-size:15px;font-weight:600">Sí, pueden escribirme</button>'
     + '<button type="button" class="tlf-skip" style="padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.25);background:transparent;color:inherit;font-size:13px">Seguir aquí sin WhatsApp</button>'
     + '<div class="tlf-msg" style="flex-basis:100%;font-size:13px"></div></form>';
-  var row = addBubble("Si quieres, déjame tu WhatsApp aquí y seguimos por ahí: por allá sí puedo escribirte yo a ti, con historias como estas.", "in", formHtml);
+  var row = addBubble("Si te está sirviendo, puedes dejar tu WhatsApp para que el equipo de Tata te contacte y podamos continuar por allí cuando esté disponible. También podemos seguir aquí.", "in", formHtml);
   var form = row.querySelector(".tlf-form");
   if (!form) return;
   form.addEventListener("submit", function (ev) { ev.preventDefault(); enviarTelefonoAnonima(row); });
@@ -1976,11 +1978,11 @@ async function enviarTelefonoAnonima(row) {
       body: JSON.stringify({ telefono: digitos, lang: PAGE_LANG, device_id: getDeviceId() })
     }, 15000);
     if (!res.ok) throw new Error("telefono " + res.status);
-    logEvento("telefono_capturado", { variante: "anonima" });
+    logEvento("telefono_capturado", { variante: TATA_VARIANTE, consentimiento: "contacto-equipo-tata-v1" });
     saveMemory({ anonima_tlf_estado: "capturado" });
     var form = row.querySelector(".tlf-form");
     if (form) form.remove();
-    var confirma = "Listo, ya tengo tu número. Te escribo por WhatsApp para mostrarte todo lo que puedo hacer por ti. Y por aquí seguimos hablando de lo que quieras.";
+    var confirma = "Tu número quedó guardado para que el equipo de Tata pueda contactarte. Mientras tanto, seguimos conversando aquí.";
     addBubble(escapeHtml(confirma), "in", "");
     logConversacion("", confirma);
   } catch (e) {
@@ -1997,116 +1999,107 @@ function omitirTelefonoAnonima(row) {
   addBubble("Perfecto, seguimos por aquí. Cuando quieras, me lo dejas.", "in", "");
 }
 function startModelo() {
-  // En este brazo el servidor es la verdad: SIEMPRE se sincroniza antes de
-  // pintar. Así, si un turno se completó en el servidor pero la respuesta se
-  // perdió (señal, timeout), al volver aparece lo que Tata ya dijo, en vez
-  // de quedarse la pantalla pegada esperando un turno nuevo.
-  if (!restoreAttempted) {
-    restaurarModelo(function () { startModelo(); });
-    return;
-  }
-  if (MODO_ANONIMA) { startAnonima(); return; }
-  logEvento("page_open", { modo: "modelo" });
+  logEvento("page_open", { modo: "modelo", variante: TATA_VARIANTE, release: "wonder-2026-10-21" });
   renderHistory();
   mostrarParabolaGuardada();
-  inputEl.placeholder = "Escríbele a Tata";
+  inputEl.placeholder = "Cuéntame qué necesitas…";
+  setInputEnabled(true); waitingInput = true;
   var mem = loadMemory();
-  if (mem.conversacion && mem.conversacion.length) {
-    // Ya hay conversación: NO se dispara un turno nuevo al abrir/refrescar.
-    // La persona sigue escribiendo y el servidor retoma con su memoria.
-    setInputEnabled(true);
-    waitingInput = true;
-    return;
+  if (!mem.conversacion || !mem.conversacion.length) mostrarSaludoAnonima();
+  // No model call, microphone permission, login or server round trip blocks first input.
+  var pending = leerTurnoPendiente();
+  if (pending) {
+    if (!pending.displayed && pending.message) addBubble(escapeHtml(pending.message), "out", "");
+    mostrarReintentoModelo("Tu último mensaje sigue pendiente. Puedes retomarlo sin volver a escribirlo.");
   }
-  setInputEnabled(true);
-  waitingInput = true;
-  modeloTurno("");
+  modeloCola.forEach(function(text){addBubble(escapeHtml(text),"out","");});
+  if (!pending && modeloCola.length) procesarColaModelo();
+  syncMicSend();
+  if (!restoreAttempted) restoreFromServer(function () {
+    if (modeloBusy || leerTurnoPendiente() || modeloCola.length) return;
+    var restored = loadMemory();
+    if (restored.conversacion && restored.conversacion.length) {
+      messagesEl.innerHTML = ""; renderHistory(); mostrarParabolaGuardada();
+    }
+  });
 }
+
 /* La persona puede seguir escribiendo mientras Tata piensa, como en un chat
    de verdad: los mensajes se encolan y se procesan en orden, en lotes.
    El input NUNCA se bloquea en este brazo. */
 var modeloCola = [];
+var PENDING_KEY = "tata-pending-turn-v2";
+try { modeloCola = JSON.parse(localStorage.getItem("tata-modelo-queue-v2") || "[]"); if (!Array.isArray(modeloCola)) modeloCola = []; } catch(e) {}
+function guardarColaModelo() { try { localStorage.setItem("tata-modelo-queue-v2", JSON.stringify(modeloCola)); } catch(e) {} }
+function leerTurnoPendiente() { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "null"); } catch(e) { return null; } }
+function guardarTurnoPendiente(p) { try { if (p) localStorage.setItem(PENDING_KEY,JSON.stringify(p)); else localStorage.removeItem(PENDING_KEY); } catch(e) {} }
+function uuidTurno() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g,function(c){return (Number(c)^crypto.getRandomValues(new Uint8Array(1))[0]&15>>Number(c)/4).toString(16);});
+}
 function handleModelo(text) {
-  logEvento("chat_msg", { modo: "modelo" });
-  modeloCola.push(text);
-  procesarColaModelo();
+  try { localStorage.removeItem("tata-draft-v2"); } catch(e) {}
+  logEvento("chat_msg", { modo: "modelo", release: "wonder-2026-10-21" });
+  modeloCola.push(text); guardarColaModelo(); procesarColaModelo();
 }
 function procesarColaModelo() {
-  if (modeloBusy) return;
-  if (!modeloCola.length) return;
-  var lote = modeloCola.splice(0, modeloCola.length).join("\n");
-  modeloTurno(lote);
+  if (modeloBusy || leerTurnoPendiente() || !modeloCola.length) return;
+  var lote = modeloCola.join("\n");
+  var pending = {id:uuidTurno(),message:lote,displayed:false}; guardarTurnoPendiente(pending);
+  modeloCola = []; guardarColaModelo();
+  modeloTurno(lote,pending);
 }
-function modeloTurno(textoUsuario) {
+function mostrarReintentoModelo(texto) {
+  var previous = document.getElementById("tata-turn-retry"); if (previous) previous.remove();
+  var row = addBubble(escapeHtml(texto), "in", '<br><button class="retry-btn modelo-retry-btn">Reintentar sin repetir el mensaje</button>');
+  row.id = "tata-turn-retry";
+  row.querySelector("button").addEventListener("click",function(){
+    var p = leerTurnoPendiente(); if (!p) { row.remove(); procesarColaModelo(); return; }
+    row.remove(); modeloTurno(p.message,p);
+  });
+}
+function modeloTurno(textoUsuario, pending) {
   if (modeloBusy) return;
-  modeloBusy = true;
-  waitingInput = true;
-  showTyping();
-  var convAntes = 0;
-  try { convAntes = (loadMemory().conversacion || []).length; } catch (e) {}
+  pending = pending || leerTurnoPendiente() || { id: uuidTurno(), message: textoUsuario || "", displayed: false };
+  guardarTurnoPendiente(pending);
+  modeloBusy = true; waitingInput = true; showTyping();
+  var began = Date.now();
+  logEvento("modelo_solicitud",{release:"wonder-2026-10-21"});
   fetchTimeout(SUPABASE_URL + "/functions/v1/tata-modelo", {
-    method: "POST",
-    headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ device_id: getDeviceId(), message: textoUsuario || "", lang: PAGE_LANG })
-  }, 150000).then(function (res) {
-    if (!res.ok) throw new Error("modelo " + res.status);
-    return res.json();
-  }).then(function (data) {
-    hideTyping();
-    modeloBusy = false;
-    var texto = String((data && data.texto) || "").trim();
-    if (texto) {
-      var row = addBubble(escapeHtml(texto), "in",
-        '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
-      wireLiveVoiceButton(row, texto);
-      logConversacion(textoUsuario || "", texto);
+    method:"POST", headers:{apikey:SUPABASE_ANON_KEY,Authorization:"Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type":"application/json","idempotency-key":pending.id},
+    body:JSON.stringify({device_id:getDeviceId(),message:pending.message,lang:PAGE_LANG})
+  },150000).then(function(res){
+    return res.json().then(function(data){ if (!res.ok) { var e = new Error(data.error || "servicio_no_disponible"); e.code=data.error; throw e; } return data; });
+  }).then(function(data){
+    hideTyping(); modeloBusy=false;
+    // Render once even if the answer arrives before its memory commit acknowledgement.
+    if (!pending.displayed && data.texto) {
+      var row=addBubble(escapeHtml(String(data.texto)),"in",'<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
+      wireLiveVoiceButton(row,String(data.texto)); logConversacion(pending.message,String(data.texto));
+      if(data.parabola){
+        var p=String(data.parabola), prow=addBubble(escapeHtml(p),"in",'<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
+        wireLiveVoiceButton(prow,p);logConversacion("",p);
+        var m=loadMemory();var ps=m.parabolas||[]; if(ps.indexOf(p)<0)ps.push(p);
+        saveMemory({parabolas:ps.slice(-10),nombre:data.nombre||m.nombre||""});
+      } else if(data.nombre)saveMemory({nombre:data.nombre});
+      pending.displayed=true;guardarTurnoPendiente(pending);
+      logEvento("modelo_respuesta_visible",{ms:Date.now()-began,release:"wonder-2026-10-21"});
     }
-    if (data && data.parabola) {
-      var p = String(data.parabola);
-      var prow = addBubble(escapeHtml(p), "in",
-        '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
-      wireLiveVoiceButton(prow, p);
-      logEvento("parabola_generada", { modo: "modelo", molde: data.molde || null });
-      var mem2 = loadMemory();
-      var ps = mem2.parabolas || []; ps.push(p);
-      var ts = mem2.tipos || []; ts.push("auto");
-      saveMemory({ parabolas: ps.slice(-10), tipos: ts.slice(-10), nombre: data.nombre || mem2.nombre || "" });
-      logConversacion("", p);
-    } else if (data && data.nombre) {
-      saveMemory({ nombre: data.nombre });
+    if(data.memory_saved===false){
+      logEvento("memoria_guardado_pendiente",{release:"wonder-2026-10-21"});
+      mostrarReintentoModelo("La respuesta llegó, pero su guardado sigue pendiente. Conservamos el mensaje aquí para reintentarlo.");
+      return;
     }
-    quizasPedirTelefonoTrasIntercambio();
-    waitingInput = true;
-    procesarColaModelo();
-  }).catch(function () {
-    hideTyping();
-    // Recuperación primero: el servidor guarda ANTES de responder, así que
-    // si la respuesta se perdió en el camino, la conversación real ya avanzó
-    // allá. Se sincroniza y, si avanzó, se repinta sin mostrar error.
-    restaurarModelo(function () {
-      var convDespues = 0;
-      try { convDespues = (loadMemory().conversacion || []).length; } catch (e) {}
-      modeloBusy = false;
-      if (convDespues > convAntes) {
-        var box = document.getElementById("messages");
-        if (box) box.innerHTML = "";
-        renderHistory();
-        mostrarParabolaGuardada();
-        waitingInput = true;
-        procesarColaModelo();
-        return;
-      }
-      var row = addBubble("Se me fue la señal un momentico. ¿Me lo repites?", "in",
-        '<br><button class="retry-btn modelo-retry-btn"><span>Reintentar</span></button>');
-      var b = row.querySelector(".modelo-retry-btn");
-      if (b) b.addEventListener("click", function () { b.disabled = true; modeloTurno(textoUsuario); });
-      waitingInput = true;
-      procesarColaModelo();
-    });
+    guardarTurnoPendiente(null);
+    logEvento("memoria_guardada",{release:"wonder-2026-10-21",confirmada:data.memory_saved===true});
+    quizasPedirTelefonoTrasIntercambio(); procesarColaModelo();
+  }).catch(function(e){
+    hideTyping();modeloBusy=false;
+    logEvento("modelo_error",{code:String(e.code||"conexion"),ms:Date.now()-began,release:"wonder-2026-10-21"});
+    mostrarReintentoModelo(e.code==="denied" ? "Ahora mismo no podemos generar otra respuesta. Tu mensaje sigue aquí." :
+      e.code==="uncertain" ? "Estamos comprobando el último envío para no repetirlo. Tu mensaje sigue aquí." :
+      "No pudimos completar este envío. Tu mensaje sigue guardado aquí; no necesitas volver a escribirlo.");
   });
 }
 
@@ -2648,3 +2641,4 @@ startConversation();
 </script>
 </body>
 </html>
+
