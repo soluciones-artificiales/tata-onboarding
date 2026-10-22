@@ -3,8 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Tata — conversemos</title>
-<meta name="tata-release" content="wonder-2026-10-21">
+<title>Tata (beta)</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -249,8 +248,6 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const messagesEl = document.getElementById("messages");
 const inputEl = document.getElementById("text-input");
 const sendBtn = document.getElementById("send-btn");
-try { inputEl.value = localStorage.getItem("tata-draft-v2") || ""; } catch(e) {}
-inputEl.addEventListener("input", function(){try{localStorage.setItem("tata-draft-v2",inputEl.value);}catch(e){}});
 const micBtn = document.getElementById("mic-btn");
 const recUi = document.getElementById("rec-ui");
 const recStop = document.getElementById("rec-stop");
@@ -394,6 +391,138 @@ if (MODO_ANONIMA) {
     if (_stA) _stA.textContent = "pura voz · en línea";
   } catch (e) {}
 }
+/* ---------- Puertas de entrada: 3 onboardings en rotación (2026-10-22) ----------
+   Tesis de Diego: el chat vacío espanta; a la gente hay que decirle qué
+   hacer. Cada dispositivo NUEVO recibe al azar una de tres puertas (A: la
+   historia manda; B: te ayudo de una; C: el regalo) y se queda con ella.
+   La puerta reemplaza al saludo genérico: Tata dice qué hace, ofrece
+   botones, y tocar un botón ES el primer mensaje de la persona. Quien ya
+   tiene conversación no ve puerta; si volvió sin haber escrito nunca, se
+   le re-ofrecen solo los botones. ?puerta=a|b|c fuerza una puerta (para
+   pruebas) y la deja pegajosa. Todo se mide con eventos: puerta_asignada,
+   puerta_mostrada, puerta_boton, puerta_ignorada. */
+var PUERTA_KEY = "tata-puerta-v1";
+var PUERTAS_TATA = {
+  a: {
+    texto: "Hola, soy Tata. Yo guardo las historias de los que construyeron este continente con las manos: la de Lorenzo Mendoza, la de los que cruzaron el mar con una maleta. Y también puedo guardar la tuya. ¿Por dónde empezamos?",
+    audio: "saludo-puerta-a.mp3",
+    botones: [
+      { label: "La historia de Lorenzo Mendoza", send: "Cuéntame la historia de Lorenzo Mendoza" },
+      { label: "Cuéntame otra historia", send: "Cuéntame otra historia" },
+      { label: "Quiero contar la mía", send: "Quiero contar mi historia" },
+      { label: "Necesito ayuda con algo", send: "Necesito ayuda con algo" }
+    ]
+  },
+  b: {
+    texto: "Hola, soy Tata. Esto es lo que puedo hacer por ti hoy. Toca una y arrancamos:",
+    audio: null,
+    botones: [
+      { label: "Que no se me pase un pago", send: "No quiero que se me pase un pago" },
+      { label: "Acordarme de algo importante", send: "Quiero que recuerdes algo importante por mí" },
+      { label: "Ordenar una idea que tengo dando vueltas", send: "Quiero ordenar una idea que tengo dando vueltas" },
+      { label: "Hablar con alguien que no juzga", send: "Quiero hablar con alguien que no juzgue" }
+    ]
+  },
+  c: {
+    texto: "Te cuento algo cortico. Un hombre salió de su pueblo con un papelito en el bolsillo: dos direcciones. La casa que dejaba, y la casa que todavía no existía. Cada vez que se cansaba, sacaba el papelito y lo leía. Porque el que olvida de dónde viene se cansa a mitad de camino, y el que olvida adónde va, se devuelve. Yo creo que tú también cargas tus dos direcciones. Por eso llegaste hasta aquí. ¿Cuál quieres contarme primero?",
+    audio: "saludo-anonima-v4.mp3",
+    botones: [
+      { label: "La casa que dejé", send: "La casa que dejé" },
+      { label: "La casa que quiero construir", send: "La casa que quiero construir" },
+      { label: "Cuéntame otra historia", send: "Cuéntame otra historia" }
+    ]
+  }
+};
+var PUERTA_FORZADA = false;
+function getPuertaTata() {
+  try {
+    var q = null;
+    try { q = new URLSearchParams(location.search).get("puerta"); } catch (e) {}
+    if (q === "a" || q === "b" || q === "c") {
+      PUERTA_FORZADA = true;
+      try { localStorage.setItem(PUERTA_KEY, q); } catch (e) {}
+      try { logEvento("puerta_asignada", { puerta: q, via: "enlace" }); } catch (e) {}
+      return q;
+    }
+    var v = null;
+    try { v = localStorage.getItem(PUERTA_KEY); } catch (e) {}
+    if (v === "a" || v === "b" || v === "c") return v;
+    var conocido = false;
+    try {
+      var m = loadMemory();
+      if (m && m.conversacion && m.conversacion.length) conocido = true;
+    } catch (e) {}
+    if (conocido) return null;
+    v = ["a", "b", "c"][Math.floor(Math.random() * 3)];
+    try { localStorage.setItem(PUERTA_KEY, v); } catch (e) {}
+    try { logEvento("puerta_asignada", { puerta: v, via: "azar" }); } catch (e) {}
+    return v;
+  } catch (e) { return null; }
+}
+var TATA_PUERTA = getPuertaTata();
+var puertaBotonesRow = null;
+var puertaResuelta = false;
+function puertaPendiente() {
+  if (!TATA_PUERTA) return false;
+  try {
+    var conv = (loadMemory().conversacion) || [];
+    for (var i = 0; i < conv.length; i++) { if (conv[i] && conv[i].u) return false; }
+    return true;
+  } catch (e) { return false; }
+}
+function resolverPuerta(via) {
+  if (puertaResuelta) return;
+  puertaResuelta = true;
+  if (puertaBotonesRow) {
+    var cont = puertaBotonesRow.querySelector(".puerta-botones");
+    if (cont) cont.remove();
+    puertaBotonesRow = null;
+  }
+  if (via === "teclado") {
+    try { logEvento("puerta_ignorada", { puerta: TATA_PUERTA }); } catch (e) {}
+  }
+}
+function mostrarPuerta(soloBotones) {
+  var p = PUERTAS_TATA[TATA_PUERTA];
+  if (!p) return;
+  var botonesHtml = '<div class="puerta-botones" style="margin-top:10px;display:flex;flex-direction:column;gap:8px">';
+  p.botones.forEach(function (b, i) {
+    botonesHtml += '<button type="button" class="puerta-btn" data-i="' + i + '" style="padding:11px 14px;border-radius:10px;border:1px solid rgba(0,0,0,.3);background:#fff;color:#111;font-size:15px;font-weight:600;text-align:left;cursor:pointer">' + escapeHtml(b.label) + '</button>';
+  });
+  botonesHtml += '</div>';
+  var row;
+  if (soloBotones) {
+    row = addBubble("¿Por dónde empezamos? Toca una:", "in", botonesHtml);
+  } else {
+    var extra = "";
+    if (MODO_ANONIMA && p.audio) extra = '<br><audio controls preload="metadata" src="' + p.audio + '" style="width:100%;margin-top:6px"></audio>';
+    row = addBubble(escapeHtml(p.texto), "in", extra + botonesHtml);
+    logConversacion("", p.texto);
+    try { logEvento("puerta_mostrada", { puerta: TATA_PUERTA, variante: TATA_VARIANTE }); } catch (e) {}
+  }
+  puertaBotonesRow = row;
+  var btns = row.querySelectorAll(".puerta-btn");
+  btns.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var b = p.botones[Number(btn.getAttribute("data-i"))];
+      if (!b) return;
+      resolverPuerta("boton");
+      try { logEvento("puerta_boton", { puerta: TATA_PUERTA, boton: b.label }); } catch (e) {}
+      addBubble(escapeHtml(b.send), "out");
+      enviarOEncolar(b.send);
+    });
+  });
+}
+/* Decide si en este arranque va puerta: forzada por enlace (pruebas),
+   puerta completa si la conversación está vacía, o solo botones si la
+   persona volvió sin haber escrito nunca. Devuelve true si mostró algo. */
+function quizasMostrarPuerta(convVacia) {
+  if (!TATA_PUERTA) return false;
+  if (PUERTA_FORZADA) { mostrarPuerta(false); return true; }
+  if (convVacia) { mostrarPuerta(false); return true; }
+  if (puertaPendiente()) { mostrarPuerta(true); return true; }
+  return false;
+}
 /* Escape del navegador interno de Instagram/Facebook (2026-10-20): dentro
    del webview de IG el micrófono se corta y la memoria no persiste igual.
    Ningún link puede forzar el navegador real desde fuera (Meta decide el
@@ -436,14 +565,12 @@ mostrarEscapeWebview();
 /* Sube la memoria al servidor. Se llama con debounce desde saveMemory, nunca bloquea la UI. */
 var _syncTimer = null;
 function scheduleServerSync() {
-  if (MODO_MODELO) return; // This conversation is committed atomically by tata-modelo.
   try {
     if (_syncTimer) clearTimeout(_syncTimer);
     _syncTimer = setTimeout(function () { _syncTimer = null; syncMemoryToServer(); }, 2000);
   } catch (e) {}
 }
 function syncMemoryToServer() {
-  if (MODO_MODELO) return;
   try {
     var mem = loadMemory();
     var payload = {
@@ -485,9 +612,9 @@ function restoreFromServer(done) {
       return res.json();
     }).then(function (data) {
       var r = data && data.row;
-      if (r && !(MODO_MODELO && (modeloBusy || localStorage.getItem("tata-pending-turn-v2")))) {
+      if (r) {
         try {
-          var m = loadMemory() || {};
+          var m = {};
           if (r.nombre) m.nombre = r.nombre;
           if (r.answers) m.answers = r.answers;
           if (r.parabolas) m.parabolas = r.parabolas;
@@ -528,6 +655,7 @@ let finished = false;
    igual que en el brazo modelo. */
 var guionCola = [];
 function enviarOEncolar(text) {
+  resolverPuerta("teclado");
   if (MODO_MODELO) { handleModelo(text); return; }
   if (!waitingInput) { guionCola.push(text); return; }
   submitAnswer(text);
@@ -1920,13 +2048,15 @@ function startAnonima() {
   setInputEnabled(true);
   waitingInput = true;
   var mem = loadMemory();
-  if (mem.conversacion && mem.conversacion.length) return;
-  mostrarSaludoAnonima();
+  if (mem.conversacion && mem.conversacion.length) { quizasMostrarPuerta(false); return; }
+  if (!quizasMostrarPuerta(true)) mostrarSaludoAnonima();
 }
 function mostrarSaludoAnonima() {
-  addBubble("Epa, soy Tata. Podemos hablar de lo que traes en la cabeza o resolver algo juntos. ¿Qué necesitas hoy?", "in", "");
+  var textoSaludo = "Epa, hola. Soy Tata, la de los cuentos, la misma voz que has estado escuchando en las historias. Yo no tengo foto: soy pura voz. Y no estoy aquí solo a contar cuentos: estoy para ayudarte con lo que traigas encima, una idea que estés construyendo, una cuenta que no te cuadra, o algo que te quite el sueño. Primero quiero escucharte a ti. Cuéntame: ¿qué estás construyendo tú, o qué te trae por aquí?";
+  addBubble(escapeHtml(textoSaludo), "in",
+    '<br><audio controls preload="metadata" src="saludo-anonima-v3.mp3" style="width:100%;margin-top:6px"></audio>');
+  logConversacion("", textoSaludo);
 }
-
 /* La anónima DA PRIMERO y pide el teléfono DESPUÉS del primer intercambio
    (decisión de Diego, 2026-10-21; revierte el pedido de una del 2026-10-20:
    en 48 h, 57 de 70 personas no escribieron ni una palabra, y el precipicio
@@ -1936,6 +2066,7 @@ function mostrarSaludoAnonima() {
    resto de la página. Quien lo omite sigue chateando normal. */
 var pedidoTelefonoMostrado = false;
 function quizasPedirTelefonoTrasIntercambio() {
+  if (!MODO_ANONIMA) return;
   if (pedidoTelefonoMostrado) return;
   var mem = loadMemory();
   if (mem.anonima_tlf_estado) return;
@@ -1947,10 +2078,10 @@ function mostrarPedidoTelefono() {
   if (mem.anonima_tlf_estado) return;
   var formHtml = '<form class="tlf-form" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
     + '<input type="tel" class="tlf-input" placeholder="Tu número de WhatsApp" autocomplete="tel" style="flex:1;min-width:150px;padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.25);font-size:15px;color:#111;background:#fff">'
-    + '<button type="submit" class="tlf-send" style="padding:9px 14px;border-radius:8px;border:none;background:#128C7E;color:#fff;font-size:15px;font-weight:600">Sí, pueden escribirme</button>'
+    + '<button type="submit" class="tlf-send" style="padding:9px 14px;border-radius:8px;border:none;background:#128C7E;color:#fff;font-size:15px;font-weight:600">Enviar</button>'
     + '<button type="button" class="tlf-skip" style="padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.25);background:transparent;color:inherit;font-size:13px">Seguir aquí sin WhatsApp</button>'
     + '<div class="tlf-msg" style="flex-basis:100%;font-size:13px"></div></form>';
-  var row = addBubble("Si te está sirviendo, puedes dejar tu WhatsApp para que el equipo de Tata te contacte y podamos continuar por allí cuando esté disponible. También podemos seguir aquí.", "in", formHtml);
+  var row = addBubble("Si quieres, déjame tu WhatsApp aquí y seguimos por ahí: por allá sí puedo escribirte yo a ti, con historias como estas.", "in", formHtml);
   var form = row.querySelector(".tlf-form");
   if (!form) return;
   form.addEventListener("submit", function (ev) { ev.preventDefault(); enviarTelefonoAnonima(row); });
@@ -1978,11 +2109,11 @@ async function enviarTelefonoAnonima(row) {
       body: JSON.stringify({ telefono: digitos, lang: PAGE_LANG, device_id: getDeviceId() })
     }, 15000);
     if (!res.ok) throw new Error("telefono " + res.status);
-    logEvento("telefono_capturado", { variante: TATA_VARIANTE, consentimiento: "contacto-equipo-tata-v1" });
+    logEvento("telefono_capturado", { variante: "anonima" });
     saveMemory({ anonima_tlf_estado: "capturado" });
     var form = row.querySelector(".tlf-form");
     if (form) form.remove();
-    var confirma = "Tu número quedó guardado para que el equipo de Tata pueda contactarte. Mientras tanto, seguimos conversando aquí.";
+    var confirma = "Listo, ya tengo tu número. Te escribo por WhatsApp para mostrarte todo lo que puedo hacer por ti. Y por aquí seguimos hablando de lo que quieras.";
     addBubble(escapeHtml(confirma), "in", "");
     logConversacion("", confirma);
   } catch (e) {
@@ -1999,107 +2130,117 @@ function omitirTelefonoAnonima(row) {
   addBubble("Perfecto, seguimos por aquí. Cuando quieras, me lo dejas.", "in", "");
 }
 function startModelo() {
-  logEvento("page_open", { modo: "modelo", variante: TATA_VARIANTE, release: "wonder-2026-10-21" });
+  // En este brazo el servidor es la verdad: SIEMPRE se sincroniza antes de
+  // pintar. Así, si un turno se completó en el servidor pero la respuesta se
+  // perdió (señal, timeout), al volver aparece lo que Tata ya dijo, en vez
+  // de quedarse la pantalla pegada esperando un turno nuevo.
+  if (!restoreAttempted) {
+    restaurarModelo(function () { startModelo(); });
+    return;
+  }
+  if (MODO_ANONIMA) { startAnonima(); return; }
+  logEvento("page_open", { modo: "modelo" });
   renderHistory();
   mostrarParabolaGuardada();
-  inputEl.placeholder = "Cuéntame qué necesitas…";
-  setInputEnabled(true); waitingInput = true;
+  inputEl.placeholder = "Escríbele a Tata";
   var mem = loadMemory();
-  if (!mem.conversacion || !mem.conversacion.length) mostrarSaludoAnonima();
-  // No model call, microphone permission, login or server round trip blocks first input.
-  var pending = leerTurnoPendiente();
-  if (pending) {
-    if (!pending.displayed && pending.message) addBubble(escapeHtml(pending.message), "out", "");
-    mostrarReintentoModelo("Tu último mensaje sigue pendiente. Puedes retomarlo sin volver a escribirlo.");
+  if (mem.conversacion && mem.conversacion.length) {
+    // Ya hay conversación: NO se dispara un turno nuevo al abrir/refrescar.
+    // La persona sigue escribiendo y el servidor retoma con su memoria.
+    setInputEnabled(true);
+    waitingInput = true;
+    quizasMostrarPuerta(false);
+    return;
   }
-  modeloCola.forEach(function(text){addBubble(escapeHtml(text),"out","");});
-  if (!pending && modeloCola.length) procesarColaModelo();
-  syncMicSend();
-  if (!restoreAttempted) restoreFromServer(function () {
-    if (modeloBusy || leerTurnoPendiente() || modeloCola.length) return;
-    var restored = loadMemory();
-    if (restored.conversacion && restored.conversacion.length) {
-      messagesEl.innerHTML = ""; renderHistory(); mostrarParabolaGuardada();
-    }
-  });
+  setInputEnabled(true);
+  waitingInput = true;
+  if (!quizasMostrarPuerta(true)) modeloTurno("");
 }
-
 /* La persona puede seguir escribiendo mientras Tata piensa, como en un chat
    de verdad: los mensajes se encolan y se procesan en orden, en lotes.
    El input NUNCA se bloquea en este brazo. */
 var modeloCola = [];
-var PENDING_KEY = "tata-pending-turn-v2";
-try { modeloCola = JSON.parse(localStorage.getItem("tata-modelo-queue-v2") || "[]"); if (!Array.isArray(modeloCola)) modeloCola = []; } catch(e) {}
-function guardarColaModelo() { try { localStorage.setItem("tata-modelo-queue-v2", JSON.stringify(modeloCola)); } catch(e) {} }
-function leerTurnoPendiente() { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "null"); } catch(e) { return null; } }
-function guardarTurnoPendiente(p) { try { if (p) localStorage.setItem(PENDING_KEY,JSON.stringify(p)); else localStorage.removeItem(PENDING_KEY); } catch(e) {} }
-function uuidTurno() {
-  if (crypto.randomUUID) return crypto.randomUUID();
-  return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g,function(c){return (Number(c)^crypto.getRandomValues(new Uint8Array(1))[0]&15>>Number(c)/4).toString(16);});
-}
 function handleModelo(text) {
-  try { localStorage.removeItem("tata-draft-v2"); } catch(e) {}
-  logEvento("chat_msg", { modo: "modelo", release: "wonder-2026-10-21" });
-  modeloCola.push(text); guardarColaModelo(); procesarColaModelo();
+  logEvento("chat_msg", { modo: "modelo" });
+  modeloCola.push(text);
+  procesarColaModelo();
 }
 function procesarColaModelo() {
-  if (modeloBusy || leerTurnoPendiente() || !modeloCola.length) return;
-  var lote = modeloCola.join("\n");
-  var pending = {id:uuidTurno(),message:lote,displayed:false}; guardarTurnoPendiente(pending);
-  modeloCola = []; guardarColaModelo();
-  modeloTurno(lote,pending);
-}
-function mostrarReintentoModelo(texto) {
-  var previous = document.getElementById("tata-turn-retry"); if (previous) previous.remove();
-  var row = addBubble(escapeHtml(texto), "in", '<br><button class="retry-btn modelo-retry-btn">Reintentar sin repetir el mensaje</button>');
-  row.id = "tata-turn-retry";
-  row.querySelector("button").addEventListener("click",function(){
-    var p = leerTurnoPendiente(); if (!p) { row.remove(); procesarColaModelo(); return; }
-    row.remove(); modeloTurno(p.message,p);
-  });
-}
-function modeloTurno(textoUsuario, pending) {
   if (modeloBusy) return;
-  pending = pending || leerTurnoPendiente() || { id: uuidTurno(), message: textoUsuario || "", displayed: false };
-  guardarTurnoPendiente(pending);
-  modeloBusy = true; waitingInput = true; showTyping();
-  var began = Date.now();
-  logEvento("modelo_solicitud",{release:"wonder-2026-10-21"});
+  if (!modeloCola.length) return;
+  var lote = modeloCola.splice(0, modeloCola.length).join("\n");
+  modeloTurno(lote);
+}
+function modeloTurno(textoUsuario) {
+  if (modeloBusy) return;
+  modeloBusy = true;
+  waitingInput = true;
+  showTyping();
+  var convAntes = 0;
+  try { convAntes = (loadMemory().conversacion || []).length; } catch (e) {}
   fetchTimeout(SUPABASE_URL + "/functions/v1/tata-modelo", {
-    method:"POST", headers:{apikey:SUPABASE_ANON_KEY,Authorization:"Bearer " + SUPABASE_ANON_KEY,
-      "Content-Type":"application/json","idempotency-key":pending.id},
-    body:JSON.stringify({device_id:getDeviceId(),message:pending.message,lang:PAGE_LANG})
-  },150000).then(function(res){
-    return res.json().then(function(data){ if (!res.ok) { var e = new Error(data.error || "servicio_no_disponible"); e.code=data.error; throw e; } return data; });
-  }).then(function(data){
-    hideTyping(); modeloBusy=false;
-    // Render once even if the answer arrives before its memory commit acknowledgement.
-    if (!pending.displayed && data.texto) {
-      var row=addBubble(escapeHtml(String(data.texto)),"in",'<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
-      wireLiveVoiceButton(row,String(data.texto)); logConversacion(pending.message,String(data.texto));
-      if(data.parabola){
-        var p=String(data.parabola), prow=addBubble(escapeHtml(p),"in",'<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
-        wireLiveVoiceButton(prow,p);logConversacion("",p);
-        var m=loadMemory();var ps=m.parabolas||[]; if(ps.indexOf(p)<0)ps.push(p);
-        saveMemory({parabolas:ps.slice(-10),nombre:data.nombre||m.nombre||""});
-      } else if(data.nombre)saveMemory({nombre:data.nombre});
-      pending.displayed=true;guardarTurnoPendiente(pending);
-      logEvento("modelo_respuesta_visible",{ms:Date.now()-began,release:"wonder-2026-10-21"});
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ device_id: getDeviceId(), message: textoUsuario || "", lang: PAGE_LANG })
+  }, 150000).then(function (res) {
+    if (!res.ok) throw new Error("modelo " + res.status);
+    return res.json();
+  }).then(function (data) {
+    hideTyping();
+    modeloBusy = false;
+    var texto = String((data && data.texto) || "").trim();
+    if (texto) {
+      var row = addBubble(escapeHtml(texto), "in",
+        '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
+      wireLiveVoiceButton(row, texto);
+      logConversacion(textoUsuario || "", texto);
     }
-    if(data.memory_saved===false){
-      logEvento("memoria_guardado_pendiente",{release:"wonder-2026-10-21"});
-      mostrarReintentoModelo("La respuesta llegó, pero su guardado sigue pendiente. Conservamos el mensaje aquí para reintentarlo.");
-      return;
+    if (data && data.parabola) {
+      var p = String(data.parabola);
+      var prow = addBubble(escapeHtml(p), "in",
+        '<br><button class="retry-btn live-voice-btn"><span>Escuchar</span></button>');
+      wireLiveVoiceButton(prow, p);
+      logEvento("parabola_generada", { modo: "modelo", molde: data.molde || null });
+      var mem2 = loadMemory();
+      var ps = mem2.parabolas || []; ps.push(p);
+      var ts = mem2.tipos || []; ts.push("auto");
+      saveMemory({ parabolas: ps.slice(-10), tipos: ts.slice(-10), nombre: data.nombre || mem2.nombre || "" });
+      logConversacion("", p);
+    } else if (data && data.nombre) {
+      saveMemory({ nombre: data.nombre });
     }
-    guardarTurnoPendiente(null);
-    logEvento("memoria_guardada",{release:"wonder-2026-10-21",confirmada:data.memory_saved===true});
-    quizasPedirTelefonoTrasIntercambio(); procesarColaModelo();
-  }).catch(function(e){
-    hideTyping();modeloBusy=false;
-    logEvento("modelo_error",{code:String(e.code||"conexion"),ms:Date.now()-began,release:"wonder-2026-10-21"});
-    mostrarReintentoModelo(e.code==="denied" ? "Ahora mismo no podemos generar otra respuesta. Tu mensaje sigue aquí." :
-      e.code==="uncertain" ? "Estamos comprobando el último envío para no repetirlo. Tu mensaje sigue aquí." :
-      "No pudimos completar este envío. Tu mensaje sigue guardado aquí; no necesitas volver a escribirlo.");
+    quizasPedirTelefonoTrasIntercambio();
+    waitingInput = true;
+    procesarColaModelo();
+  }).catch(function () {
+    hideTyping();
+    // Recuperación primero: el servidor guarda ANTES de responder, así que
+    // si la respuesta se perdió en el camino, la conversación real ya avanzó
+    // allá. Se sincroniza y, si avanzó, se repinta sin mostrar error.
+    restaurarModelo(function () {
+      var convDespues = 0;
+      try { convDespues = (loadMemory().conversacion || []).length; } catch (e) {}
+      modeloBusy = false;
+      if (convDespues > convAntes) {
+        var box = document.getElementById("messages");
+        if (box) box.innerHTML = "";
+        renderHistory();
+        mostrarParabolaGuardada();
+        waitingInput = true;
+        procesarColaModelo();
+        return;
+      }
+      var row = addBubble("Se me fue la señal un momentico. ¿Me lo repites?", "in",
+        '<br><button class="retry-btn modelo-retry-btn"><span>Reintentar</span></button>');
+      var b = row.querySelector(".modelo-retry-btn");
+      if (b) b.addEventListener("click", function () { b.disabled = true; modeloTurno(textoUsuario); });
+      waitingInput = true;
+      procesarColaModelo();
+    });
   });
 }
 
@@ -2440,7 +2581,7 @@ function onSend() {
   addBubble(escapeHtml(text), "out");
   inputEl.value = "";
   syncMicSend();
-  if (!MODO_MODELO && HELP_Q_RE.test(text) && waitingInput && !telefonoMode && !desahogoMode && !extraState) { answerHelpQuestion(); return; }
+  if (HELP_Q_RE.test(text) && waitingInput && !telefonoMode && !desahogoMode && !extraState) { answerHelpQuestion(); return; }
   enviarOEncolar(text);
 }
 
@@ -2641,4 +2782,3 @@ startConversation();
 </script>
 </body>
 </html>
-
